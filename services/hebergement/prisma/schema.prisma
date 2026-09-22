@@ -1,0 +1,146 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CodeCategorie {
+  STANDARD
+  SUITE_SENIOR
+  SUITE_PRESTIGE
+}
+
+enum EtatMenage {
+  PROPRE
+  SALE
+  EN_NETTOYAGE
+}
+
+enum StatutReservation {
+  EN_ATTENTE_PAIEMENT
+  CONFIRMEE
+  EN_COURS
+  TERMINEE
+  ANNULEE
+}
+
+enum CanalReservation {
+  SITE_WEB
+  RECEPTION
+  FACEBOOK
+  ASSISTANT_IA
+}
+
+enum Langue {
+  FR
+  MG
+  EN
+}
+
+model CategorieChambre {
+  id          String        @id @default(uuid()) @db.Uuid
+  code        CodeCategorie @unique
+  libelle     Json
+  description Json?
+  capacite    Int
+  tarifNuit   Int           @map("tarif_nuit")
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  chambres Chambre[]
+  tarifs   TarifSaison[]
+
+  @@map("categorie_chambre")
+}
+
+model Chambre {
+  id           String     @id @default(uuid()) @db.Uuid
+  numero       String     @unique
+  etage        Int
+  categorieId  String     @map("categorie_id") @db.Uuid
+  etatMenage   EtatMenage @default(PROPRE) @map("etat_menage")
+  horsService  Boolean    @default(false) @map("hors_service")
+  version      Int        @default(1)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  categorie    CategorieChambre @relation(fields: [categorieId], references: [id])
+  reservations Reservation[]
+
+  @@index([categorieId])
+  @@map("chambre")
+}
+
+model Saison {
+  id        String   @id @default(uuid()) @db.Uuid
+  nom       Json
+  dateDebut DateTime @map("date_debut") @db.Date
+  dateFin   DateTime @map("date_fin") @db.Date
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tarifs   TarifSaison[]
+  nuitees  ReservationNuitee[]
+
+  @@map("saison")
+}
+
+model TarifSaison {
+  saisonId    String @map("saison_id") @db.Uuid
+  categorieId String @map("categorie_id") @db.Uuid
+  tarifNuit   Int    @map("tarif_nuit")
+
+  saison    Saison           @relation(fields: [saisonId], references: [id], onDelete: Cascade)
+  categorie CategorieChambre @relation(fields: [categorieId], references: [id])
+
+  @@id([saisonId, categorieId])
+  @@map("tarif_saison")
+}
+
+model Reservation {
+  id                   String            @id @default(uuid()) @db.Uuid
+  reference            String            @unique
+  chambreId            String            @map("chambre_id") @db.Uuid
+  clientId             String?           @map("client_id") @db.Uuid
+  clientNom            String            @map("client_nom")
+  clientTelephone      String            @map("client_telephone")
+  clientEmail          String?           @map("client_email")
+  pieceIdentiteType    String            @map("piece_identite_type")
+  pieceIdentiteNumero  String            @map("piece_identite_numero")
+  dateArrivee          DateTime          @map("date_arrivee") @db.Date
+  dateDepart           DateTime          @map("date_depart") @db.Date
+  montantTotal         Int               @map("montant_total")
+  statut               StatutReservation @default(EN_ATTENTE_PAIEMENT)
+  canal                CanalReservation
+  langue               Langue            @default(FR)
+  expireLe             DateTime?         @map("expire_le") @db.Timestamptz
+  checkInLe            DateTime?         @map("check_in_le") @db.Timestamptz
+  checkOutLe           DateTime?         @map("check_out_le") @db.Timestamptz
+  version              Int               @default(1)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  chambre Chambre             @relation(fields: [chambreId], references: [id])
+  nuitees ReservationNuitee[]
+
+  @@index([chambreId, dateArrivee])
+  @@index([statut])
+  @@map("reservation")
+}
+
+model ReservationNuitee {
+  reservationId String   @map("reservation_id") @db.Uuid
+  nuit          DateTime @db.Date
+  tarifApplique Int      @map("tarif_applique")
+  saisonId      String?  @map("saison_id") @db.Uuid
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  saison      Saison?     @relation(fields: [saisonId], references: [id])
+
+  @@id([reservationId, nuit])
+  @@map("reservation_nuitee")
+}
