@@ -1,0 +1,97 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tables techniques (docs/modele-donnees.md, « Mécanismes communs »)
+// ---------------------------------------------------------------------------
+
+model OutboxEvenement {
+  id        String    @id @default(uuid()) @db.Uuid
+  type      String
+  payload   Json
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  publieLe  DateTime? @map("publie_le") @db.Timestamptz
+
+  @@index([publieLe, createdAt])
+  @@map("outbox_evenement")
+}
+
+model EvenementTraite {
+  evenementId String   @id @map("evenement_id") @db.Uuid
+  traiteLe    DateTime @default(now()) @map("traite_le") @db.Timestamptz
+
+  @@map("evenement_traite")
+}
+
+// ---------------------------------------------------------------------------
+// comptabilite-service (docs/modele-donnees.md) : un MODÈLE DE LECTURE.
+// Tout est calculé à partir des autres services et peut être recalculé.
+// Couche V1 : statistiques, contrôle du stock, reversements (+ copies de factures).
+// prevision_stock et analyse_ia relèvent de la V3.
+// ---------------------------------------------------------------------------
+
+enum StatutReversement {
+  A_REVERSER
+  REVERSE
+}
+
+// BPMN « Copie de facture » : ajout au modèle. Le snapshot reçu dans facture.cloturee,
+// pour « Compter les factures du jour » et calculer le chiffre d'affaires sans rappeler facturation.
+model CopieFacture {
+  factureId          String   @id @map("facture_id") @db.Uuid // facturation, sans FK
+  numero             String
+  type               String // SEJOUR | RESTAURANT
+  clientNom          String   @map("client_nom")
+  montantTotal       Int      @map("montant_total")
+  montantHebergement Int      @map("montant_hebergement")
+  montantRestaurant  Int      @map("montant_restaurant")
+  clotureeLe         DateTime @map("cloturee_le") @db.Timestamptz
+  lignes             Json
+  recueLe            DateTime @default(now()) @map("recue_le") @db.Timestamptz
+
+  @@index([clotureeLe])
+  @@map("copie_facture")
+}
+
+model StatistiqueJournaliere {
+  jour              DateTime @id @db.Date
+  nuiteesVendues    Int      @map("nuitees_vendues")
+  nombreFactures    Int      @map("nombre_factures")
+  caHebergement     Int      @map("ca_hebergement")
+  caRestaurant      Int      @map("ca_restaurant")
+  caLivraison       Int      @default(0) @map("ca_livraison") // V3
+  repartitionCanaux Json     @map("repartition_canaux") // ex. {"SITE_WEB": 4, "RECEPTION": 7}
+  genereLe          DateTime @default(now()) @map("genere_le") @db.Timestamptz
+
+  @@map("statistique_journaliere")
+}
+
+model ControleStockJournalier {
+  jour                  DateTime @db.Date
+  articleCode           String   @map("article_code")
+  consommationAttendue  Int      @map("consommation_attendue") // nuitées × consommation_par_nuitee
+  consommationReelle    Int      @map("consommation_reelle") // sorties MENAGE du jour
+  ecart                 Int // réelle − attendue
+
+  @@id([jour, articleCode])
+  @@map("controle_stock_journalier")
+}
+
+model Reversement {
+  id        String            @id @default(uuid()) @db.Uuid
+  factureId String            @unique @map("facture_id") @db.Uuid // facturation, sans FK
+  numeroFacture String        @map("numero_facture") // snapshot
+  montant   Int // total des lignes RESTAURANT
+  statut    StatutReversement @default(A_REVERSER)
+  reverseLe DateTime?         @map("reverse_le") @db.Timestamptz
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("reversement")
+}
