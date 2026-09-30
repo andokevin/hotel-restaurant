@@ -1,0 +1,95 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TypeFacture  { SEJOUR
+ RESTAURANT 
+ }
+enum StatutFacture  { 
+    EMISE
+    PAYEE
+    ANNULEE 
+  }
+enum Origine       { 
+    HEBERGEMENT
+    RESTAURANT
+    LIVRAISON 
+  }
+enum StatutPaiement  { 
+    EN_ATTENTE
+    REUSSI
+    ECHOUE 
+}
+enum MethodePaiement { MVOLA
+   AIRTEL_MONEY
+   ORANGE_MONEY
+   CARTE
+   AUTRE 
+}
+
+model Facture {
+  id            String        @id @default(uuid()) @db.Uuid
+  numero        String        @unique
+  type          TypeFacture
+  reservationId String?       @unique @map("reservation_id") @db.Uuid
+  clientNom     String        @map("client_nom")
+  clientEmail   String?       @map("client_email")
+  statut        StatutFacture @default(EMISE)
+  montantTotal  Int           @map("montant_total")
+  montantPaye   Int           @default(0) @map("montant_paye")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  lignes    LigneFacture[]
+  paiements Paiement[]
+
+  @@map("facture")
+}
+
+model LigneFacture {
+  id           String  @id @default(uuid()) @db.Uuid
+  factureId    String  @map("facture_id") @db.Uuid
+  libelle      String
+  quantite     Int
+  prixUnitaire Int     @map("prix_unitaire")
+  montant      Int
+  origine      Origine
+  sourceId     String  @map("source_id") @db.Uuid
+
+  facture Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+
+  @@unique([origine, sourceId])
+  @@map("ligne_facture")
+}
+
+model Paiement {
+  id               String           @id @default(uuid()) @db.Uuid
+  factureId        String           @map("facture_id") @db.Uuid
+  montant          Int
+  statut           StatutPaiement   @default(EN_ATTENTE)
+  methode          MethodePaiement?
+  referenceExterne String?          @unique @map("reference_externe")
+  jetonHash        String           @map("jeton_hash")
+  urlPaiement      String?          @map("url_paiement")
+  erreur           String?
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  facture Facture @relation(fields: [factureId], references: [id])
+
+  @@index([factureId])
+  @@map("paiement")
+}
+
+model CompteurFacture {
+  annee          Int @id
+  dernierNumero  Int @map("dernier_numero")
+
+  @@map("compteur_facture")
+}

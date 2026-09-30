@@ -2,3 +2,8 @@ node_modules
 dist
 .env
 *.log
+# Outils d’agent IA (décision D6)
+services/facturation/.agents/
+services/facturation/skills-lock.json
+services/facturation/.claude/
+services/facturation/.windsurf/
