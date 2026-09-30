@@ -33,11 +33,11 @@ describe("Routage", () => {
   it("transmet le corps JSON intact (aucun express.json() avant le proxy)", async () => {
     const res = await request(app)
       .post("/api/auth/connexion")
-      .send({ email: "rakoto@mail.mg", motDePasse: "Tsara-Be-2026!" });
+      .send({ identifiant: "0341234567", motDePasse: "Tsara-Be-2026!" });
 
     expect(res.status).toBe(401); // le faux auth refuse toute connexion
     expect(res.body.service).toBe("auth");
-    expect(res.body.corps).toEqual({ email: "rakoto@mail.mg", motDePasse: "Tsara-Be-2026!" });
+    expect(res.body.corps).toEqual({ identifiant: "0341234567", motDePasse: "Tsara-Be-2026!" });
   });
 });
 
@@ -128,7 +128,7 @@ describe("Réservations : ordre des règles", () => {
 describe("Protection contre la force brute", () => {
   it("les connexions RÉUSSIES ne comptent pas (tout le personnel partage l'IP de l'hôtel)", async () => {
     for (let i = 0; i < 6; i++) {
-      const res = await request(app).post("/api/auth/connexion").send({ email: `employe${i}@hotel.mg`, motDePasse: "bon" });
+      const res = await request(app).post("/api/auth/connexion").send({ identifiant: `034000000${i}`, motDePasse: "bon" });
       expect(res.status).toBe(200);
     }
   });
@@ -137,7 +137,7 @@ describe("Protection contre la force brute", () => {
     // LIMITE_CONNEXIONS = 3 en test ; le test « corps JSON intact » a déjà consommé un échec
     const statuts: number[] = [];
     for (let i = 0; i < 4; i++) {
-      statuts.push((await request(app).post("/api/auth/connexion").send({ email: "x@y.mg", motDePasse: "z" })).status);
+      statuts.push((await request(app).post("/api/auth/connexion").send({ identifiant: "0340000009", motDePasse: "z" })).status);
     }
     expect(statuts.at(-1)).toBe(429);
     // Les autres routes ne sont pas limitées

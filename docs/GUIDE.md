@@ -1079,7 +1079,7 @@ check-out une 2e fois → 422 (transition interdite)
 > 4. **Consommateur idempotent** : `$transaction(tx => { tx.evenementTraite.create({ data: { evenementId } }); effet(tx) })`, et doublon si la contrainte est `evenement_traite_pkey`.
 > 5. **Machine à états** : `const TRANSITIONS: Record<Statut, Statut[]> = {…}` ; `if (!TRANSITIONS[de].includes(vers)) throw RegleMetier(…)`.
 
-### Questions à trancher avant la phase 4
+### Questions à trancher avant la phase 4 (tranchées : voir « Décisions A et B » plus bas)
 
 - **A. Identifiant de connexion** : le modèle fait du **téléphone** l'identifiant principal (unique) et de l'email un champ facultatif ; le code actuel se connecte par **email**. À Madagascar, le téléphone est plus universel que l'email. Veux-tu que j'aligne auth sur le modèle (`telephone` obligatoire et unique, connexion par téléphone **ou** email, `nom`, `langue`) ?
 - **B. Hachage** : garder **scrypt** (intégré à Node, recommandé par l'OWASP), ou passer à **argon2** comme le suggère le modèle (module natif à autoriser dans `pnpm-workspace.yaml`) ?
@@ -1097,3 +1097,60 @@ check-out une 2e fois → 422 (transition interdite)
 
 **Pourquoi une Idempotency-Key si la base empêche déjà le surbooking ?**
 > Parce que le serveur choisit la chambre : un double clic créerait **deux** réservations valides, sur deux chambres différentes. La contrainte ne voit aucun conflit. La clé dit « c'est la même intention », et le second envoi reçoit la première réservation.
+
+---
+
+## Journal — Décisions A et B (avant la phase 4)
+
+| # | Décision | Conséquence |
+|---|---|---|
+| A | **Aligner auth sur le modèle** : le téléphone est l'identifiant de connexion principal | Migration `connexion_par_telephone`, connexion par téléphone **ou** email |
+| B | **Garder scrypt** (au lieu d'argon2 ou bcrypt cités par le modèle) | Aucun changement ; l'écart est assumé et justifié en phase 2 (recommandé par l'OWASP, intégré à Node, pas de module natif) |
+
+### Ce qui a changé dans auth
+
+- `utilisateur` : `nom` (au lieu de `nom_complet`), `telephone` **obligatoire et unique**, `email` **facultatif** (toujours unique), `langue` (FR par défaut). Hors V1, non ajoutés : `canal_notification` et `consentement_notifications_le` (notification, V2).
+- **Numéro normalisé** avant stockage et avant recherche : `+261 34 12 345 67`, `034 12 345 67` et `0341234567` désignent le même compte (stocké `0341234567`). Sans cela, la même personne pourrait ouvrir trois comptes, et ne pas retrouver le sien en se connectant.
+- **Connexion** : un seul champ `identifiant`. Un `@` le fait lire comme un email, sinon comme un téléphone :
+  ```ts
+  identifiant: z.union([
+    email.transform((valeur) => ({ email: valeur })),
+    telephone.transform((valeur) => ({ telephone: valeur })),
+  ]),
+  // …
+  prisma.utilisateur.findUnique({ where: identifiant })   // { email } ou { telephone } : deux colonnes uniques
+  ```
+  Le message d'échec devient « Identifiant ou mot de passe incorrect », identique pour un numéro inconnu, un email inconnu ou un mauvais mot de passe (testé).
+- Nouveau conflit traduit : `utilisateur_telephone_key` → `409 TELEPHONE_DEJA_UTILISE`.
+- `creer-admin` demande `ADMIN_TELEPHONE` (et `ADMIN_EMAIL` en option).
+- **16 tests** (3 nouveaux : connexion par toutes les écritures du numéro, numéro déjà pris sous une autre écriture, email facultatif).
+
+### Piège : une migration qui aurait effacé des données, puis une migration qui a échoué
+
+1. **Prisma voulait supprimer une colonne.** Pour renommer `nom_complet` en `nom`, `prisma migrate diff` proposait `DROP COLUMN "nom_complet"` puis `ADD COLUMN "nom"`, ce qui aurait perdu le nom de tous les comptes. Prisma ne sait pas deviner un **renommage** : pour lui, une colonne disparaît et une autre apparaît. En mode non interactif, `migrate dev` refuse d'ailleurs de continuer quand il détecte une perte de données. La migration a été **écrite à la main** avec `RENAME COLUMN`, puis on a vérifié qu'il ne restait aucun écart avec `migrate diff` (« This is an empty migration »).
+2. **La migration a échoué sur la base de test**, exactement comme son commentaire le prévoyait : `ADD COLUMN "telephone" TEXT NOT NULL` refuse une table qui contient déjà des lignes (les comptes laissés par les tests). On ne peut pas inventer un numéro de téléphone, donc l'échec est **voulu**. Ta base de dev, vide, est passée sans problème.
+3. **Réparation, comme on le ferait en production.** PostgreSQL + Prisma n'enveloppent pas une migration dans une transaction unique : elle s'était arrêtée **au milieu** (type, renommage, email et langue appliqués ; téléphone non). Procédure suivie, sans supprimer la base :
+   ```bash
+   # 1. voir où la migration s'est arrêtée
+   SELECT migration_name, finished_at FROM _prisma_migrations;      -- connexion_par_telephone non terminée
+   # 2. finir le travail à la main (ici : comptes de test supprimés, puis les 2 instructions restantes)
+   # 3. dire à Prisma que la migration est appliquée
+   pnpm exec prisma migrate resolve --applied 20260930143256_connexion_par_telephone
+   # 4. vérifier
+   pnpm exec prisma migrate status        # Database schema is up to date!
+   pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script   # vide
+   ```
+   Sur une vraie base remplie, l'étape 2 serait : ajouter `telephone` en **nullable**, faire saisir les numéros, puis le passer en `NOT NULL` dans une seconde migration.
+
+### Scénarios mis à jour
+
+- Connexion par `identifiant` dans `scripts/scenario-phase2.sh` et `scenario-phase3.sh`.
+- Phase 2 : depuis la réservation par catégorie, le refus n'arrive que quand **toutes** les chambres de la catégorie sont prises. Le script les réserve toutes, puis montre le 409 `AUCUNE_CHAMBRE_DISPONIBLE`.
+- Phase 3 : si la chambre choisie par le serveur n'est pas propre (laissée SALE par un essai précédent), le script fait ce que ferait la réceptionniste : il **réattribue** une chambre PROPRE de la même catégorie. C'est arrivé pendant l'essai (422, puis réattribution → 200).
+
+> **À refaire de mémoire — décisions A et B**
+>
+> 1. **Renommer une colonne sans perte** : `ALTER TABLE "utilisateur" RENAME COLUMN "nom_complet" TO "nom";`, jamais la migration DROP + ADD proposée par Prisma.
+> 2. **Normaliser avant de valider** : `z.string().transform(normaliser).pipe(z.string().regex(…))`.
+> 3. **Deux formes pour un champ** : `z.union([email.transform(v => ({ email: v })), telephone.transform(v => ({ telephone: v }))])`.
+> 4. **Reprendre une migration échouée** : lire `_prisma_migrations`, finir à la main, `prisma migrate resolve --applied <nom>`, puis `migrate status` et `migrate diff`.
