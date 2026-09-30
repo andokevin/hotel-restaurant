@@ -684,3 +684,182 @@ curl -s -X POST localhost:3001/reservations -H 'Content-Type: application/json' 
 
 - `docs/modele-donnees.md` n'est pas encore dans le dépôt : sa lecture et la liste des incohérences avec ce guide sont à faire dès qu'il est ajouté.
 - `docs/bpmn/` : BPMN corrigé à copier par Ando (D8).
+
+---
+
+## Journal — Phase 2 : auth + api-gateway
+
+### Contrat
+
+**auth** (port 3003, base `auth_db`) — joignable uniquement via la gateway, préfixe public `/api/auth` :
+
+| Route | Accès | Entrée | Sortie | Erreurs |
+|---|---|---|---|---|
+| `POST /auth/inscription` | public | `email`, `motDePasse` (≥ 10), `nomComplet` | 201, utilisateur **CLIENT** (sans hash) | 400, 409 `EMAIL_DEJA_UTILISE` |
+| `POST /auth/connexion` | public, **10 essais / 15 min / IP** | `email`, `motDePasse` | `jetonAcces` (JWT 15 min), `expireDans`, `utilisateur` + cookie `hotel_session` | 401 `IDENTIFIANTS_INVALIDES`, 403 `COMPTE_DESACTIVE`, 429 |
+| `POST /auth/rafraichir` | cookie | cookie `hotel_session` | nouveau `jetonAcces` + **nouveau** cookie | 401 |
+| `POST /auth/deconnexion` | cookie | — | 204, cookie effacé | — |
+| `GET /auth/moi` | connecté | — | utilisateur courant | 401 |
+| `GET` / `POST /auth/utilisateurs`, `PATCH /auth/utilisateurs/:id` | ADMIN | `role`, `actif`… | utilisateur(s) | 401, 403, 404, 409 |
+
+**api-gateway** (port 3000, sans base) — le seul port ouvert au navigateur. La table des droits complète est dans [services/api-gateway/src/regles.ts](../services/api-gateway/src/regles.ts).
+
+### Données (proposition, en attendant `modele-donnees.md`)
+
+- `utilisateur` : `id`, `email` (unique, en minuscules), `nom_complet`, `mot_de_passe_hash`, `role` (enum des 7 rôles), `actif`.
+- `session` : `id`, `utilisateur_id` (FK **dans** le service : autorisée), `jeton_hash` (unique), `expire_le`, `revoque_le`.
+
+### Cas limites traités
+
+| Cas | Comportement |
+|---|---|
+| `"role": "ADMIN"` envoyé à l'inscription | ignoré : le schéma Zod n'a pas ce champ, le rôle est forcé à CLIENT |
+| Email avec majuscules ou espaces | normalisé : `" Rakoto@Mail.MG "` → `rakoto@mail.mg` (un seul compte) |
+| Email inconnu / mauvais mot de passe | **même** réponse, et **même durée** (hachage factice) |
+| Compte désactivé | 403, mais seulement **après** un mot de passe correct |
+| Jeton de rafraîchissement rejoué | toutes les sessions de l'utilisateur sont coupées (vol présumé) |
+| Deux rafraîchissements simultanés avec le même cookie | un seul réussit (`updateMany` conditionnel) |
+| Compte désactivé ou rôle modifié | sessions révoquées ; le JWT déjà émis reste valable ≤ 15 min |
+| Jeton expiré sur une route publique | ignoré : on peut toujours voir les tarifs |
+| En-tête `x-utilisateur-role: ADMIN` forgé | supprimé par la gateway avant tout traitement |
+| Route inconnue de la table des droits | 404, même si le service la connaît (`/interne/…`) |
+| Service en panne | 502 `SERVICE_INDISPONIBLE`, pas de plantage de la gateway |
+| Mot de passe de 10 Mo | refusé (max 128) : le hachage ne peut pas monopoliser le CPU |
+
+### Ce qui a été fait
+
+- `packages/commun` : contrat d'identité (`ROLES`, en-têtes `x-utilisateur-*`, `lireIdentite`), constantes JWT (`iss`, `aud`, `alg`), `exigerRoles`, erreur `Interdit` (403).
+- `services/auth` : inscription, connexion, rafraîchissement avec rotation, déconnexion, profil, gestion des comptes ; scripts `generer-cles` et `creer-admin`. **13 tests.**
+- `services/api-gateway` : nettoyage des en-têtes, limite de tentatives, table des droits avec refus par défaut, vérification des JWT, proxy avec clé interne, 502 propre. **11 tests.**
+- `services/hebergement` : **toutes** ses routes (sauf `/health`) exigent la clé interne ; CORS retiré (le navigateur ne lui parle plus). Tests mis à jour : **13 tests**.
+- `scripts/scenario-phase2.sh` : scénario de bout en bout via la gateway, rejouable.
+
+### Pourquoi ces choix
+
+| Choix | Alternative | Pourquoi |
+|---|---|---|
+| JWT signés en **EdDSA (Ed25519)**, clé asymétrique | HS256 (secret partagé) | Avec HS256, la gateway aurait le même secret qu'auth : si elle est compromise, l'attaquant **fabrique** des jetons ADMIN. Avec une paire de clés, la gateway n'a que la clé **publique** : elle vérifie, elle ne peut pas signer. Ed25519 plutôt que RS256 : clés de 32 octets au lieu de 2048 bits, signature plus rapide, pas de paramètres à mal choisir. |
+| Jeton d'accès **court** (15 min) + jeton de rafraîchissement **opaque en base** | Un seul JWT de 7 jours | Un JWT ne se révoque pas. Le rafraîchissement, lui, est en base : on peut le couper (déconnexion, compte désactivé, vol). |
+| Rafraîchissement dans un **cookie httpOnly, SameSite=Strict** | `localStorage` | Un script injecté (XSS) lit `localStorage`, pas un cookie httpOnly. `SameSite=Strict` empêche un autre site de le faire envoyer (CSRF). Le jeton d'accès, lui, vivra **en mémoire** côté front. |
+| **Rotation** du jeton de rafraîchissement | Jeton réutilisable 7 jours | Chaque jeton sert une fois. S'il revient, c'est qu'il a été copié : on coupe tout. |
+| **Clé interne sur tous les services** | Faire confiance au réseau Docker | Défense en profondeur : même si un port de service est exposé par erreur, sans la clé il ne répond pas, et les en-têtes d'identité ne peuvent pas être forgés. |
+| **Refus par défaut** dans la gateway | Proxy de tout `/api/*` | Une nouvelle route oubliée dans la table est **fermée**, pas ouverte. On préfère un 404 à signaler qu'une fuite silencieuse. |
+| Limite de tentatives **en mémoire** | Stockée dans Redis | Suffisant avec une seule gateway. Avec plusieurs instances, chacune compterait de son côté : il faudrait un stockage Redis partagé. |
+
+### Code expliqué
+
+**1. Hachage scrypt** — [services/auth/src/mot-de-passe.ts](../services/auth/src/mot-de-passe.ts)
+
+```ts
+scrypt(motDePasse, sel, LONGUEUR, { N: n, r, p, maxmem: MEMOIRE_MAX }, (err, cle) => …)
+```
+- `sel` : 16 octets aléatoires **par utilisateur**. Deux comptes avec le même mot de passe ont des hash différents, et les tables précalculées (« rainbow tables ») ne servent à rien.
+- `N = 2^17, r = 8` : ~128 Mo de mémoire par calcul (recommandation OWASP). Mesuré sur ta machine : **0,6 à 0,9 s par connexion**. Pour un attaquant, chaque essai coûte autant.
+- `maxmem` : Node refuse par défaut plus de 32 Mo. Sans ce paramètre, scrypt lève une erreur avec ces réglages.
+- Format stocké : `scrypt$131072$8$1$<sel>$<empreinte>`. Les paramètres voyagent **avec** le hash : on pourra augmenter N plus tard, et les anciens comptes restent vérifiables.
+
+**2. Détection de vol par rotation** — [services/auth/src/modules/session/session.service.ts](../services/auth/src/modules/session/session.service.ts)
+
+```ts
+if (session.revoqueLe) {                       // ce jeton a DÉJÀ été utilisé
+  await prisma.session.updateMany({            // → on coupe TOUTES les sessions du compte
+    where: { utilisateurId: session.utilisateurId, revoqueLe: null },
+    data: { revoqueLe: new Date() },
+  });
+  throw SessionInvalide();
+}
+```
+Un voleur et la victime ont le même jeton. Le premier des deux qui rafraîchit obtient un nouveau jeton ; quand le second présente l'ancien, le service voit un jeton déjà consommé. Il ne sait pas **qui** est le voleur, donc il coupe tout : la victime se reconnecte avec son mot de passe, le voleur ne le peut pas.
+
+**3. L'ordre des étapes dans la gateway** — [services/api-gateway/src/app.ts](../services/api-gateway/src/app.ts)
+
+L'ordre des `app.use` **est** la sécurité :
+1. `delete req.headers["x-utilisateur-role"]` (et id, clé interne) : **avant** tout le reste, sinon une étape suivante pourrait lire une valeur forgée.
+2. `limiteConnexion` sur `POST /api/auth/connexion`.
+3. Le routeur d'autorisation, construit à partir de `REGLES` :
+   ```ts
+   for (const regle of REGLES) autorisation[regle.methode](regle.chemin, garde(regle.acces, regle.service));
+   ```
+   On réutilise le routeur d'Express pour comparer les chemins (`/chambres/:id`), avec la même syntaxe que dans les services. La garde se termine par `next("router")` : **sortir** du routeur dès la première règle trouvée. Un simple `next()` ferait essayer les règles suivantes qui correspondraient aussi.
+4. Si aucune règle n'a posé de service cible : 404 (refus par défaut). Sinon, proxy, qui ajoute la clé interne dans `on.proxyReq`.
+
+**4. Vérifier un JWT correctement** — [services/api-gateway/src/authentification.ts](../services/api-gateway/src/authentification.ts)
+
+```ts
+await jwtVerify(jeton, clePublique, { issuer: JWT_EMETTEUR, audience: JWT_AUDIENCE, algorithms: ["EdDSA"] });
+```
+- La **signature** prouve qu'auth l'a émis et que personne ne l'a modifié (le test « jeton falsifié » change 4 caractères, et c'est refusé).
+- `exp` est vérifié automatiquement.
+- `issuer` / `audience` : un jeton émis pour une autre application est refusé.
+- `algorithms` **imposé** : l'attaque classique consiste à envoyer un jeton `"alg": "none"` (non signé) ou `HS256` signé avec la clé publique utilisée comme secret. En fixant l'algorithme attendu, ces jetons sont rejetés.
+- Puis `z.object({ sub: z.uuid(), role: z.enum(ROLES) })` : même signé, le contenu est validé avant d'être transmis.
+
+### Pièges rencontrés
+
+1. **Pas de `express.json()` dans la gateway.** Le proxy retransmet le flux brut de la requête. Si on le lit avant, le service reçoit un corps vide et le client ne comprend pas pourquoi. Un test vérifie que le corps arrive intact.
+2. **`next()` contre `next("router")`** : sans `"router"`, une requête qui correspond à deux règles passe par deux gardes.
+3. **Le chemin du cookie est celui que voit le navigateur** (`/api/auth`), pas celui du service (`/auth`) : auth ne sait pas qu'il est derrière une gateway, d'où `COOKIE_CHEMIN`.
+4. **`maxmem` de scrypt** : erreur « memory limit exceeded » avec les paramètres OWASP si on l'oublie.
+5. **Un `await` sur une requête Supertest l'envoie.** `await avecJeton(req)` puis `.set(…)` : trop tard, la requête est partie. On construit d'abord la requête complète.
+6. **Les tests laissent des données** (`viderBase` en *début* de test) : le scénario manuel lancé ensuite sur la même base est tombé sur un compte `direction@hotel.mg` avec un autre mot de passe. Le script le détecte maintenant et s'arrête avec un message clair.
+
+### Limites connues (à assumer en entretien)
+
+- Un JWT reste valable jusqu'à 15 min après la désactivation d'un compte.
+- Deux onglets qui rafraîchissent **au même instant** : le second est refusé et doit se reconnecter. Le front (phase 8) évitera ce cas avec un seul rafraîchissement partagé.
+- Un CLIENT ne peut pas encore lire ses propres réservations : il faut d'abord que hebergement relie une réservation à son compte (`clientId`), en phase 3.
+
+### Commandes pour tester à la main
+
+```bash
+# Une seule fois : clés JWT et bases
+pnpm --filter @hotel/auth generer-cles
+#   → JWT_CLE_PRIVEE=… dans services/auth/.env, JWT_CLE_PUBLIQUE=… dans services/api-gateway/.env
+#   (modèles : services/*/.env.example ; CLE_INTERNE identique partout)
+docker compose up -d postgres
+docker compose exec postgres psql -U hotel -d postgres -c "CREATE DATABASE auth_db"   # si le volume existait déjà
+pnpm --filter @hotel/auth exec prisma migrate deploy
+
+# Tous les tests (37)
+pnpm build:commun && pnpm test
+
+# Lancer gateway + auth + hebergement
+pnpm dev
+
+# Dans un autre terminal : scénario complet via la gateway
+ADMIN_MOT_DE_PASSE='choisis-un-mot-de-passe-long' bash scripts/scenario-phase2.sh
+```
+
+Résultat attendu (extrait) :
+```
+GET  /categories sans jeton   → 200
+GET  /reservations sans jeton → 401
+10→13 oct. → 201
+{"code":"CHAMBRE_INDISPONIBLE",…}  → 409
+GET  /auth/utilisateurs (ADMIN seul)       → 403
+POST /reservations/:id/confirmer (interne) → 404
+En-tête forgé x-utilisateur-role: ADMIN   → 401
+rafraichir → 200 · deconnexion → 204 · rafraichir après → 401
+```
+
+> **À refaire de mémoire — phase 2**
+>
+> 1. **Hacher un mot de passe** : `scrypt(mdp, randomBytes(16), 64, { N: 2 ** 17, r: 8, p: 1, maxmem: 256 * 1024 * 1024 }, cb)`, stocker `scrypt$N$r$p$sel$empreinte`, comparer avec `timingSafeEqual`.
+> 2. **Signer / vérifier un JWT (jose)** : `new SignJWT({ role }).setProtectedHeader({ alg: "EdDSA" }).setSubject(id).setIssuer(…).setAudience(…).setExpirationTime("15m").sign(clePrivee)` ; `jwtVerify(jeton, clePublique, { issuer, audience, algorithms: ["EdDSA"] })`.
+> 3. **Cookie de session** : `res.cookie(nom, valeur, { httpOnly: true, sameSite: "strict", secure: prod, path: "/api/auth", maxAge })`.
+> 4. **Rotation** : `updateMany({ where: { id, revoqueLe: null }, data: { revoqueLe: new Date() } })`, `count === 0` = déjà utilisé.
+> 5. **Gateway** : `delete req.headers["x-utilisateur-role"]` en premier ; `router[methode](chemin, garde)` ; `next("router")` ; pas de `express.json()` avant `createProxyMiddleware`.
+
+### Questions d'entretien ajoutées
+
+**Pourquoi une clé asymétrique pour les JWT ?**
+> Pour que seul auth puisse signer. La gateway, exposée à Internet, n'a que la clé publique : si elle est compromise, l'attaquant ne peut pas fabriquer de jetons.
+
+**Où stocker les jetons côté navigateur ?**
+> Le jeton d'accès en mémoire JavaScript (perdu au rechargement, mais 15 min de vie). Le jeton de rafraîchissement dans un cookie httpOnly et SameSite=Strict, que le JavaScript ne peut pas lire et qu'un autre site ne peut pas faire envoyer.
+
+**Pourquoi la même réponse pour « email inconnu » et « mauvais mot de passe » ?**
+> Sinon, on donne à un attaquant la liste des emails qui ont un compte. On égalise aussi la **durée**, avec un hachage factice : sinon, une réponse plus rapide trahirait un email inconnu.
+
+**Que se passe-t-il si quelqu'un appelle directement hebergement sur le port 3001 ?**
+> 401 : sans la clé interne, le service ne répond qu'à `/health`. Et en production, ce port n'est de toute façon pas publié hors du réseau Docker.
