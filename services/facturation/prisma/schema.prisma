@@ -10,7 +10,7 @@ datasource db {
 
 // Règle : une valeur d'enum par ligne, toujours.
 // Une valeur écrite sur la même ligne que « { » est IGNORÉE par Prisma, sans erreur
-// (c'est ainsi que SEJOUR et MVOLA avaient disparu de la base).
+// (c'est ainsi que SEJOUR et MVOLA avaient disparu de la base en phase 1).
 enum TypeFacture {
   SEJOUR
   RESTAURANT
@@ -19,9 +19,11 @@ enum TypeFacture {
 enum StatutFacture {
   EMISE
   PAYEE
+  CLOTUREE
   ANNULEE
 }
 
+// Propriétaire de l'argent : le lieu de paiement change, le propriétaire non.
 enum Origine {
   HEBERGEMENT
   RESTAURANT
@@ -32,63 +34,88 @@ enum StatutPaiement {
   EN_ATTENTE
   REUSSI
   ECHOUE
+  // Ajout au modèle : argent reçu mais incohérent (montant différent, facture déjà soldée,
+  // paiement arrivé sur un lien remplacé). À traiter à la main (remboursement).
+  ANOMALIE
 }
 
 enum MethodePaiement {
+  ESPECES
   MVOLA
-  AIRTEL_MONEY
   ORANGE_MONEY
+  AIRTEL_MONEY
   CARTE
-  AUTRE
+}
+
+enum Langue {
+  FR
+  MG
+  EN
 }
 
 model Facture {
-  id            String        @id @default(uuid()) @db.Uuid
-  numero        String        @unique
-  type          TypeFacture
-  reservationId String?       @unique @map("reservation_id") @db.Uuid
-  clientNom     String        @map("client_nom")
-  clientEmail   String?       @map("client_email")
-  statut        StatutFacture @default(EMISE)
-  montantTotal  Int           @map("montant_total")
-  montantPaye   Int           @default(0) @map("montant_paye")
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  id             String        @id @default(uuid()) @db.Uuid
+  // Séquentiel et sans trou : FAC-2026-000123 (compteur_facture, même transaction)
+  numero         String        @unique
+  type           TypeFacture
+  reservationId  String?       @unique @map("reservation_id") @db.Uuid // hebergement, sans FK
+  commandeId     String?       @unique @map("commande_id") @db.Uuid // restaurant, sans FK
+  // Ajout au modèle : le compte du client (auth, sans FK), pour qu'il ne voie et ne paie QUE ses factures
+  clientId       String?       @map("client_id") @db.Uuid
+  clientNom      String        @map("client_nom") // snapshot
+  // Snapshots pour le reçu (email) et le paiement mobile (téléphone)
+  clientEmail    String?       @map("client_email")
+  clientTelephone String?      @map("client_telephone")
+  langue         Langue        @default(FR)
+  statut         StatutFacture @default(EMISE) // une facture émise ne se supprime jamais
+  montantTotal   Int           @map("montant_total")
+  montantPaye    Int           @default(0) @map("montant_paye")
+  emiseLe        DateTime      @default(now()) @map("emise_le") @db.Timestamptz
+  clotureeLe     DateTime?     @map("cloturee_le") @db.Timestamptz
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
   lignes    LigneFacture[]
   paiements Paiement[]
 
+  @@index([clientId])
+  @@index([statut])
   @@map("facture")
 }
 
 model LigneFacture {
   id           String  @id @default(uuid()) @db.Uuid
   factureId    String  @map("facture_id") @db.Uuid
-  libelle      String
+  libelle      String // ex. Suite Prestige – 3 nuits
   quantite     Int
   prixUnitaire Int     @map("prix_unitaire")
   montant      Int
   origine      Origine
-  sourceId     String  @map("source_id") @db.Uuid
+  sourceId     String  @map("source_id") @db.Uuid // reservation_id ou commande_id
 
   facture Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
 
+  // Une réservation ou une commande n'est facturée qu'une fois (idempotence de consommation.imputee)
   @@unique([origine, sourceId])
   @@map("ligne_facture")
 }
 
 model Paiement {
-  id               String           @id @default(uuid()) @db.Uuid
-  factureId        String           @map("facture_id") @db.Uuid
-  montant          Int
-  statut           StatutPaiement   @default(EN_ATTENTE)
-  methode          MethodePaiement?
-  referenceExterne String?          @unique @map("reference_externe")
-  jetonHash        String           @map("jeton_hash")
-  urlPaiement      String?          @map("url_paiement")
-  erreur           String?
-  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  id                    String           @id @default(uuid()) @db.Uuid // = "reference" envoyée à Papi
+  factureId             String           @map("facture_id") @db.Uuid
+  montant               Int
+  statut                StatutPaiement   @default(EN_ATTENTE)
+  // Inconnue tant que Papi n'a pas dit comment le client a payé
+  methode               MethodePaiement?
+  referenceExterne      String?          @unique @map("reference_externe") // paymentReference de Papi
+  encaissePar           String?          @map("encaisse_par") @db.Uuid // auth, sans FK (espèces)
+  // Ajouts au modèle, exigés par la sécurité Papi (énoncé) : on ne stocke que des EMPREINTES
+  jetonHash             String?          @map("jeton_hash") // SHA-256 du jeton placé dans notificationUrl
+  notificationTokenHash String?          @map("notification_token_hash") // SHA-256 du notificationToken de Papi
+  urlPaiement           String?          @map("url_paiement")
+  erreur                String?
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
   facture Facture @relation(fields: [factureId], references: [id])
 
@@ -97,8 +124,30 @@ model Paiement {
 }
 
 model CompteurFacture {
-  annee          Int @id
-  dernierNumero  Int @map("dernier_numero")
+  annee         Int @id
+  dernierNumero Int @map("dernier_numero")
 
   @@map("compteur_facture")
+}
+
+// ---------------------------------------------------------------------------
+// Tables techniques (docs/modele-donnees.md, « Mécanismes communs »)
+// ---------------------------------------------------------------------------
+
+model OutboxEvenement {
+  id        String    @id @default(uuid()) @db.Uuid
+  type      String
+  payload   Json
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  publieLe  DateTime? @map("publie_le") @db.Timestamptz
+
+  @@index([publieLe, createdAt])
+  @@map("outbox_evenement")
+}
+
+model EvenementTraite {
+  evenementId String   @id @map("evenement_id") @db.Uuid
+  traiteLe    DateTime @default(now()) @map("traite_le") @db.Timestamptz
+
+  @@map("evenement_traite")
 }
