@@ -36,8 +36,15 @@ export const REGLES: readonly Regle[] = [
   { methode: "get", chemin: "/chambres/:id", service: "hebergement", acces: ["RECEPTIONNISTE", "FEMME_MENAGE", "ADMIN"] },
   { methode: "post", chemin: "/chambres", service: "hebergement", acces: ["ADMIN"] },
   { methode: "post", chemin: "/reservations", service: "hebergement", acces: ["CLIENT", ...RECEPTION] },
-  // Lecture réservée au personnel : un CLIENT ne verra « ses » réservations qu'en phase 3,
-  // quand hebergement saura vérifier qu'elles lui appartiennent.
   { methode: "get", chemin: "/reservations", service: "hebergement", acces: RECEPTION },
-  { methode: "get", chemin: "/reservations/:id", service: "hebergement", acces: RECEPTION },
+  // ORDRE IMPORTANT : les chemins fixes AVANT "/reservations/:id".
+  // La première règle qui correspond s'applique ; si ":id" venait d'abord, un CLIENT
+  // atteindrait "/reservations/departs" en passant par la règle ":id" (ouverte aux clients).
+  { methode: "get", chemin: "/reservations/mes-reservations", service: "hebergement", acces: ["CLIENT"] },
+  { methode: "get", chemin: "/reservations/departs", service: "hebergement", acces: RECEPTION },
+  // Un CLIENT n'obtient que SES réservations : hebergement vérifie l'appartenance (sinon 404).
+  { methode: "get", chemin: "/reservations/:id", service: "hebergement", acces: ["CLIENT", ...RECEPTION] },
+  { methode: "post", chemin: "/reservations/:id/annuler", service: "hebergement", acces: RECEPTION },
+  { methode: "post", chemin: "/reservations/:id/check-in", service: "hebergement", acces: RECEPTION },
+  { methode: "post", chemin: "/reservations/:id/check-out", service: "hebergement", acces: RECEPTION },
 ];

@@ -46,11 +46,14 @@ app.use((req, _res, next) => {
 
 // 2. Limite de tentatives sur la connexion : un attaquant ne peut pas essayer
 //    des milliers de mots de passe (attaque par force brute).
+//    Seuls les ÉCHECS comptent : à l'hôtel, tout le personnel sort par la même IP publique ;
+//    si les connexions réussies comptaient, dix employés qui arrivent le matin bloqueraient le onzième.
 const limiteConnexion = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: env.LIMITE_CONNEXIONS,
   standardHeaders: "draft-8",
   legacyHeaders: false,
+  skipSuccessfulRequests: true, // une réponse < 400 ne compte pas
   handler: (_req, res) => {
     res.status(429).json({ code: "TROP_DE_TENTATIVES", message: "Trop de tentatives, réessayez dans 15 minutes" });
   },

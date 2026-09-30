@@ -35,6 +35,7 @@ describe("Routage", () => {
       .post("/api/auth/connexion")
       .send({ email: "rakoto@mail.mg", motDePasse: "Tsara-Be-2026!" });
 
+    expect(res.status).toBe(401); // le faux auth refuse toute connexion
     expect(res.body.service).toBe("auth");
     expect(res.body.corps).toEqual({ email: "rakoto@mail.mg", motDePasse: "Tsara-Be-2026!" });
   });
@@ -107,9 +108,33 @@ describe("Autorisation par rôle", () => {
   });
 });
 
+describe("Réservations : ordre des règles", () => {
+  it("un CLIENT n'atteint pas /reservations/departs par la règle /reservations/:id", async () => {
+    expect((await avecJeton(request(app).get("/api/reservations/departs"), "CLIENT")).status).toBe(403);
+    expect((await avecJeton(request(app).get("/api/reservations/departs"), "RECEPTIONNISTE")).status).toBe(200);
+    expect((await avecJeton(request(app).get("/api/reservations/mes-reservations"), "CLIENT")).status).toBe(200);
+    expect((await avecJeton(request(app).get("/api/reservations/mes-reservations"), "RECEPTIONNISTE")).status).toBe(403);
+  });
+
+  it("check-in, check-out et annulation réservés à la réception", async () => {
+    const id = "7b1f3c2a-9d4e-4f5a-8b6c-1d2e3f4a5b6c";
+    for (const action of ["check-in", "check-out", "annuler"]) {
+      expect((await avecJeton(request(app).post(`/api/reservations/${id}/${action}`), "CLIENT")).status).toBe(403);
+      expect((await avecJeton(request(app).post(`/api/reservations/${id}/${action}`), "RECEPTIONNISTE")).status).toBe(200);
+    }
+  });
+});
+
 describe("Protection contre la force brute", () => {
-  it("au-delà de la limite, la connexion répond 429", async () => {
-    // LIMITE_CONNEXIONS = 3 en test ; le test « corps JSON intact » a déjà consommé une tentative
+  it("les connexions RÉUSSIES ne comptent pas (tout le personnel partage l'IP de l'hôtel)", async () => {
+    for (let i = 0; i < 6; i++) {
+      const res = await request(app).post("/api/auth/connexion").send({ email: `employe${i}@hotel.mg`, motDePasse: "bon" });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("au-delà de la limite d'ÉCHECS, la connexion répond 429", async () => {
+    // LIMITE_CONNEXIONS = 3 en test ; le test « corps JSON intact » a déjà consommé un échec
     const statuts: number[] = [];
     for (let i = 0; i < 4; i++) {
       statuts.push((await request(app).post("/api/auth/connexion").send({ email: "x@y.mg", motDePasse: "z" })).status);

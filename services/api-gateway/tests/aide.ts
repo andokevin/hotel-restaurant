@@ -9,7 +9,10 @@ export async function demarrerServiceEcho(nom: string): Promise<{ url: string; s
   const app = express();
   app.use(express.json());
   app.use((req, res) => {
-    res.json({
+    // Le faux auth n'accepte que le mot de passe "bon" : utile pour tester la limite de tentatives
+    const echec = req.originalUrl === "/auth/connexion" && req.body?.motDePasse !== "bon";
+    const statut = echec ? 401 : 200;
+    res.status(statut).json({
       service: nom,
       methode: req.method,
       chemin: req.originalUrl,
