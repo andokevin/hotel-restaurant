@@ -73,4 +73,19 @@ export const REGLES: readonly Regle[] = [
   { methode: "post", chemin: "/articles", service: "stock", acces: ["ADMIN"] },
   { methode: "get", chemin: "/articles/:id/mouvements", service: "stock", acces: ["COMPTABLE", "ADMIN"] },
   { methode: "post", chemin: "/articles/:id/mouvements", service: "stock", acces: ["COMPTABLE", "ADMIN"] },
+
+  // --- restaurant (lanes Restaurant et Communication) ---
+  { methode: "get", chemin: "/menus/publies", service: "restaurant", acces: "PUBLIC" },
+  { methode: "get", chemin: "/menus", service: "restaurant", acces: ["RESTAURANT", "COMMUNICATION", "ADMIN"] },
+  { methode: "post", chemin: "/menus", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+  { methode: "post", chemin: "/menus/:id/plats", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+  { methode: "patch", chemin: "/plats/:id", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+  { methode: "post", chemin: "/menus/:id/publier", service: "restaurant", acces: ["COMMUNICATION", "ADMIN"] },
+  { methode: "post", chemin: "/menus/:id/depublier", service: "restaurant", acces: ["COMMUNICATION", "ADMIN"] },
+  { methode: "get", chemin: "/menus/:id/texte-facebook", service: "restaurant", acces: ["COMMUNICATION", "ADMIN"] },
+  { methode: "get", chemin: "/commandes", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+  { methode: "post", chemin: "/commandes", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+  { methode: "post", chemin: "/commandes/:id/statut", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+  { methode: "post", chemin: "/commandes/:id/imputer", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+  { methode: "post", chemin: "/commandes/:id/facturer", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
 ];
