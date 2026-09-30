@@ -6,34 +6,25 @@ import type { CreationUtilisateurDTO, InscriptionDTO, MiseAJourUtilisateurDTO } 
 // Les seuls champs qui sortent du service : le hash du mot de passe ne quitte jamais la base.
 export const CHAMPS_PUBLICS = {
   id: true,
+  nom: true,
+  telephone: true,
   email: true,
-  nomComplet: true,
+  langue: true,
   role: true,
   actif: true,
   createdAt: true,
 } as const;
 
-export const inscrire = async (data: InscriptionDTO) =>
+const creer = async ({ motDePasse, ...data }: CreationUtilisateurDTO) =>
   prisma.utilisateur.create({
-    data: {
-      email: data.email,
-      nomComplet: data.nomComplet,
-      motDePasseHash: await hacherMotDePasse(data.motDePasse),
-      role: "CLIENT",
-    },
+    data: { ...data, motDePasseHash: await hacherMotDePasse(motDePasse) },
     select: CHAMPS_PUBLICS,
   });
 
-export const creerUtilisateur = async (data: CreationUtilisateurDTO) =>
-  prisma.utilisateur.create({
-    data: {
-      email: data.email,
-      nomComplet: data.nomComplet,
-      motDePasseHash: await hacherMotDePasse(data.motDePasse),
-      role: data.role,
-    },
-    select: CHAMPS_PUBLICS,
-  });
+// Le rôle est forcé ICI : l'inscription publique ne peut créer qu'un CLIENT.
+export const inscrire = (data: InscriptionDTO) => creer({ ...data, role: "CLIENT" });
+
+export const creerUtilisateur = (data: CreationUtilisateurDTO) => creer(data);
 
 export const listerUtilisateurs = () =>
   prisma.utilisateur.findMany({ select: CHAMPS_PUBLICS, orderBy: { createdAt: "desc" } });

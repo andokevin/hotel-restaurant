@@ -26,6 +26,11 @@ app.use(
   creerGestionnaireErreurs({
     logger,
     contraintes: {
+      utilisateur_telephone_key: {
+        status: 409,
+        code: "TELEPHONE_DEJA_UTILISE",
+        message: "Un compte existe déjà avec ce numéro",
+      },
       utilisateur_email_key: { status: 409, code: "EMAIL_DEJA_UTILISE", message: "Un compte existe déjà avec cet email" },
     },
   }),

@@ -9,6 +9,9 @@ import { appel, cookieSession, creerCompte, MOT_DE_PASSE, viderBase } from "./ai
 const clePublique = () =>
   importSPKI(Buffer.from(process.env.JWT_CLE_PUBLIQUE_TEST ?? "", "base64").toString("utf8"), "EdDSA");
 
+const connexion = (identifiant: string, motDePasse = MOT_DE_PASSE) =>
+  appel("post", "/auth/connexion").send({ identifiant, motDePasse });
+
 beforeEach(() => viderBase());
 afterAll(() => prisma.$disconnect());
 
@@ -22,42 +25,74 @@ describe("Clé interne", () => {
 describe("Inscription", () => {
   it("crée un CLIENT, même si le corps demande ADMIN, sans exposer le hash", async () => {
     const res = await appel("post", "/auth/inscription").send({
+      nom: "Rakoto Jean",
+      telephone: "+261 34 12 345 67",
       email: "  Rakoto@Mail.MG ",
       motDePasse: MOT_DE_PASSE,
-      nomComplet: "Rakoto Jean",
       role: "ADMIN",
     });
 
     expect(res.status).toBe(201);
     expect(res.body.role).toBe("CLIENT");
+    expect(res.body.telephone).toBe("0341234567"); // normalisé
     expect(res.body.email).toBe("rakoto@mail.mg");
+    expect(res.body.langue).toBe("FR");
     expect(res.body).not.toHaveProperty("motDePasseHash");
 
-    const enBase = await prisma.utilisateur.findUniqueOrThrow({ where: { email: "rakoto@mail.mg" } });
+    const enBase = await prisma.utilisateur.findUniqueOrThrow({ where: { telephone: "0341234567" } });
     expect(enBase.motDePasseHash).toMatch(/^scrypt\$1024\$8\$1\$/);
     expect(enBase.motDePasseHash).not.toContain(MOT_DE_PASSE);
   });
 
-  it("refuse un email déjà utilisé (409) et un mot de passe trop court (400)", async () => {
-    await creerCompte("rakoto@mail.mg");
+  it("l'email est facultatif (identifiant principal : le téléphone)", async () => {
+    const res = await appel("post", "/auth/inscription").send({ nom: "Hanta", telephone: "0331234567", motDePasse: MOT_DE_PASSE });
+    expect(res.status).toBe(201);
+    expect(res.body.email).toBeNull();
+  });
+
+  it("refuse un numéro déjà utilisé, même écrit autrement (409)", async () => {
+    await creerCompte("0341234567");
     const doublon = await appel("post", "/auth/inscription").send({
-      email: "RAKOTO@mail.mg",
+      nom: "Autre",
+      telephone: "034 12 345 67",
       motDePasse: MOT_DE_PASSE,
-      nomComplet: "Autre",
     });
     expect(doublon.status).toBe(409);
-    expect(doublon.body.code).toBe("EMAIL_DEJA_UTILISE");
+    expect(doublon.body.code).toBe("TELEPHONE_DEJA_UTILISE");
+  });
 
-    const court = await appel("post", "/auth/inscription").send({ email: "a@b.mg", motDePasse: "123", nomComplet: "Court" });
+  it("refuse un email déjà utilisé (409), un numéro invalide et un mot de passe trop court (400)", async () => {
+    await creerCompte("0341234567", "CLIENT", true, "rakoto@mail.mg");
+    const email = await appel("post", "/auth/inscription").send({
+      nom: "Autre",
+      telephone: "0321234567",
+      email: "RAKOTO@mail.mg",
+      motDePasse: MOT_DE_PASSE,
+    });
+    expect(email.status).toBe(409);
+    expect(email.body.code).toBe("EMAIL_DEJA_UTILISE");
+
+    const numero = await appel("post", "/auth/inscription").send({ nom: "X", telephone: "0201234567", motDePasse: MOT_DE_PASSE });
+    expect(numero.status).toBe(400);
+
+    const court = await appel("post", "/auth/inscription").send({ nom: "Court", telephone: "0381234567", motDePasse: "123" });
     expect(court.status).toBe(400);
   });
 });
 
 describe("Connexion", () => {
-  it("renvoie un JWT signé valable 15 min et pose un cookie httpOnly", async () => {
-    const u = await creerCompte("recep@hotel.mg", "RECEPTIONNISTE");
+  it("par téléphone (toutes écritures) ou par email", async () => {
+    await creerCompte("0341234567", "CLIENT", true, "rakoto@mail.mg");
 
-    const res = await appel("post", "/auth/connexion").send({ email: "recep@hotel.mg", motDePasse: MOT_DE_PASSE });
+    for (const identifiant of ["0341234567", "+261 34 12 345 67", "034 12 345 67", "Rakoto@mail.mg"]) {
+      expect((await connexion(identifiant)).status).toBe(200);
+    }
+  });
+
+  it("renvoie un JWT signé valable 15 min et pose un cookie httpOnly", async () => {
+    const u = await creerCompte("0341234567", "RECEPTIONNISTE");
+
+    const res = await connexion("0341234567");
 
     expect(res.status).toBe(200);
     const { payload } = await jwtVerify(res.body.jetonAcces, await clePublique(), {
@@ -75,22 +110,23 @@ describe("Connexion", () => {
     expect(res.body).not.toHaveProperty("jetonSession"); // le jeton de session n'est QUE dans le cookie
   });
 
-  it("même réponse pour un email inconnu et un mauvais mot de passe", async () => {
-    await creerCompte("recep@hotel.mg");
+  it("même réponse pour un compte inconnu et un mauvais mot de passe", async () => {
+    await creerCompte("0341234567", "CLIENT", true, "rakoto@mail.mg");
 
-    const inconnu = await appel("post", "/auth/connexion").send({ email: "personne@hotel.mg", motDePasse: MOT_DE_PASSE });
-    const mauvais = await appel("post", "/auth/connexion").send({ email: "recep@hotel.mg", motDePasse: "mauvais-mdp" });
+    const inconnu = await connexion("0349999999");
+    const emailInconnu = await connexion("personne@mail.mg");
+    const mauvais = await connexion("0341234567", "mauvais-mdp");
 
-    expect(inconnu.status).toBe(401);
-    expect(mauvais.status).toBe(401);
+    expect([inconnu.status, emailInconnu.status, mauvais.status]).toEqual([401, 401, 401]);
     expect(inconnu.body).toEqual(mauvais.body);
+    expect(emailInconnu.body).toEqual(mauvais.body);
   });
 
   it("refuse un compte désactivé (403), seulement après un mot de passe correct", async () => {
-    await creerCompte("ancien@hotel.mg", "RECEPTIONNISTE", false);
+    await creerCompte("0341234567", "RECEPTIONNISTE", false);
 
-    expect((await appel("post", "/auth/connexion").send({ email: "ancien@hotel.mg", motDePasse: "faux-faux-faux" })).status).toBe(401);
-    const res = await appel("post", "/auth/connexion").send({ email: "ancien@hotel.mg", motDePasse: MOT_DE_PASSE });
+    expect((await connexion("0341234567", "faux-faux-faux")).status).toBe(401);
+    const res = await connexion("0341234567");
     expect(res.status).toBe(403);
     expect(res.body.code).toBe("COMPTE_DESACTIVE");
   });
@@ -98,8 +134,8 @@ describe("Connexion", () => {
 
 describe("Rafraîchissement (rotation des jetons)", () => {
   const connecter = async () => {
-    await creerCompte("client@mail.mg");
-    return cookieSession(await appel("post", "/auth/connexion").send({ email: "client@mail.mg", motDePasse: MOT_DE_PASSE }));
+    await creerCompte("0341234567");
+    return cookieSession(await connexion("0341234567"));
   };
 
   it("échange le cookie contre un nouveau jeton d'accès et un NOUVEAU cookie", async () => {
@@ -136,19 +172,19 @@ describe("Rafraîchissement (rotation des jetons)", () => {
 
 describe("Profil et gestion des comptes", () => {
   it("GET /auth/moi lit l'identité transmise par la gateway", async () => {
-    const u = await creerCompte("client@mail.mg");
+    const u = await creerCompte("0341234567");
 
     const res = await appel("get", "/auth/moi", { id: u.id, role: "CLIENT" });
     expect(res.status).toBe(200);
-    expect(res.body.email).toBe("client@mail.mg");
+    expect(res.body.telephone).toBe("0341234567");
 
     expect((await appel("get", "/auth/moi")).status).toBe(401);
   });
 
   it("seul un ADMIN gère les comptes (vérifié aussi dans le service)", async () => {
-    const client = await creerCompte("client@mail.mg");
-    const admin = await creerCompte("direction@hotel.mg", "ADMIN");
-    const nouveau = { email: "menage@hotel.mg", motDePasse: MOT_DE_PASSE, nomComplet: "Hanta", role: "FEMME_MENAGE" };
+    const client = await creerCompte("0341234567");
+    const admin = await creerCompte("0340000001", "ADMIN");
+    const nouveau = { nom: "Hanta", telephone: "0381234567", motDePasse: MOT_DE_PASSE, role: "FEMME_MENAGE" };
 
     expect((await appel("post", "/auth/utilisateurs", { id: client.id, role: "CLIENT" }).send(nouveau)).status).toBe(403);
 
@@ -158,11 +194,9 @@ describe("Profil et gestion des comptes", () => {
   });
 
   it("désactiver un compte coupe ses sessions", async () => {
-    const admin = await creerCompte("direction@hotel.mg", "ADMIN");
-    const recep = await creerCompte("recep@hotel.mg", "RECEPTIONNISTE");
-    const cookie = cookieSession(
-      await appel("post", "/auth/connexion").send({ email: "recep@hotel.mg", motDePasse: MOT_DE_PASSE }),
-    );
+    const admin = await creerCompte("0340000001", "ADMIN");
+    const recep = await creerCompte("0341234567", "RECEPTIONNISTE");
+    const cookie = cookieSession(await connexion("0341234567"));
 
     const res = await appel("patch", `/auth/utilisateurs/${recep.id}`, { id: admin.id, role: "ADMIN" }).send({ actif: false });
 

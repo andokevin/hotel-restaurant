@@ -14,9 +14,9 @@ export const appel = (methode: "get" | "post" | "patch", chemin: string, identit
 
 export const MOT_DE_PASSE = "Tsara-Be-2026!";
 
-export const creerCompte = async (email: string, role: Role = "CLIENT", actif = true) =>
+export const creerCompte = async (telephone: string, role: Role = "CLIENT", actif = true, email?: string) =>
   prisma.utilisateur.create({
-    data: { email, nomComplet: "Rasoa Voahangy", role, actif, motDePasseHash: await hacherMotDePasse(MOT_DE_PASSE) },
+    data: { telephone, email, nom: "Rasoa Voahangy", role, actif, motDePasseHash: await hacherMotDePasse(MOT_DE_PASSE) },
   });
 
 // Extrait "hotel_session=<valeur>" de l'en-tête Set-Cookie

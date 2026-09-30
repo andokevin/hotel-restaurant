@@ -12,9 +12,10 @@ import {
 import { CHAMPS_PUBLICS } from "../utilisateur/utilisateur.service.js";
 import type { ConnexionDTO } from "./session.schema.js";
 
-// Un seul message pour « email inconnu » et « mauvais mot de passe » :
-// sinon on dirait à un attaquant quels emails ont un compte.
-const IdentifiantsInvalides = () => new AppError(401, "IDENTIFIANTS_INVALIDES", "Email ou mot de passe incorrect");
+// Un seul message pour « compte inconnu » et « mauvais mot de passe » :
+// sinon on dirait à un attaquant quels numéros ou emails ont un compte.
+const IdentifiantsInvalides = () =>
+  new AppError(401, "IDENTIFIANTS_INVALIDES", "Identifiant ou mot de passe incorrect");
 const SessionInvalide = () => NonAutorise("Session expirée, reconnectez-vous");
 
 type Utilisateur = { id: string; role: Role };
@@ -36,8 +37,9 @@ async function ouvrirSession(utilisateur: Utilisateur) {
   };
 }
 
-export async function connecter({ email, motDePasse }: ConnexionDTO) {
-  const u = await prisma.utilisateur.findUnique({ where: { email } });
+export async function connecter({ identifiant, motDePasse }: ConnexionDTO) {
+  // identifiant vaut { telephone } ou { email } : deux colonnes uniques, donc findUnique
+  const u = await prisma.utilisateur.findUnique({ where: identifiant });
 
   if (!u) {
     await verifierMotDePasse(motDePasse, await obtenirHashFactice()); // même durée qu'un vrai compte

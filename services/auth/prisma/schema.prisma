@@ -19,14 +19,25 @@ enum Role {
   CLIENT
 }
 
+enum Langue {
+  FR
+  MG
+  EN
+}
+
+// docs/modele-donnees.md, auth-service. Hors V1 (notification, V2) : canal_notification,
+// consentement_notifications_le ; rôle LIVREUR (V3).
 model Utilisateur {
   id             String   @id @default(uuid()) @db.Uuid
-  // Toujours stocké en minuscules : "Rakoto@Mail.mg" et "rakoto@mail.mg" sont le même compte
-  email          String   @unique
-  nomComplet     String   @map("nom_complet")
+  nom            String
+  // Identifiant de connexion principal, normalisé au format local : 0341234567
+  telephone      String   @unique
+  // Facultatif ; toujours stocké en minuscules
+  email          String?  @unique
   // Format : scrypt$N$r$p$sel$empreinte (le mot de passe lui-même n'est jamais stocké)
   motDePasseHash String   @map("mot_de_passe_hash")
   role           Role
+  langue         Langue   @default(FR)
   actif          Boolean  @default(true)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
