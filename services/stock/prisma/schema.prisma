@@ -1,0 +1,83 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tables techniques (docs/modele-donnees.md, « Mécanismes communs »)
+// ---------------------------------------------------------------------------
+
+model OutboxEvenement {
+  id        String    @id @default(uuid()) @db.Uuid
+  type      String
+  payload   Json
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  publieLe  DateTime? @map("publie_le") @db.Timestamptz
+
+  @@index([publieLe, createdAt])
+  @@map("outbox_evenement")
+}
+
+model EvenementTraite {
+  evenementId String   @id @map("evenement_id") @db.Uuid
+  traiteLe    DateTime @default(now()) @map("traite_le") @db.Timestamptz
+
+  @@map("evenement_traite")
+}
+
+// ---------------------------------------------------------------------------
+// stock-service (docs/modele-donnees.md)
+// La quantité courante sert à la lecture rapide, l'historique des mouvements sert de preuve.
+// Les deux sont modifiés dans la même transaction.
+// ---------------------------------------------------------------------------
+
+enum TypeMouvement {
+  ENTREE
+  SORTIE
+}
+
+enum MotifMouvement {
+  APPROVISIONNEMENT
+  MENAGE
+  AJUSTEMENT_INVENTAIRE
+  PERTE
+}
+
+model Article {
+  id                    String   @id @default(uuid()) @db.Uuid
+  code                  String   @unique // GEL_DOUCHE, PAPIER_HYGIENIQUE, PANTOUFLE, BROSSE_A_DENTS
+  libelle               Json // { fr, mg?, en? }
+  quantite              Int      @default(0) // CHECK >= 0 (migration)
+  seuilAlerte           Int      @map("seuil_alerte")
+  consommationParNuitee Int      @default(1) @map("consommation_par_nuitee")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  mouvements Mouvement[]
+
+  @@map("article")
+}
+
+model Mouvement {
+  id            String         @id @default(uuid()) @db.Uuid
+  articleId     String         @map("article_id") @db.Uuid
+  type          TypeMouvement
+  motif         MotifMouvement
+  quantite      Int // CHECK > 0 : le sens vient de type
+  referenceId   String?        @map("reference_id") @db.Uuid // tâche de ménage, sans FK
+  chambreNumero String?        @map("chambre_numero") // snapshot
+  effectuePar   String?        @map("effectue_par") @db.Uuid // auth, sans FK
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  article Article @relation(fields: [articleId], references: [id])
+
+  // Une tâche de ménage ne sort qu'une fois chaque article (idempotence de menage.termine)
+  @@unique([referenceId, articleId])
+  @@index([motif, createdAt])
+  @@map("mouvement")
+}
