@@ -1,10 +1,22 @@
+import { Conflit, NotFound, RegleMetier } from "@hotel/commun";
 import { prisma } from "../../db.js";
-import { NotFound, RegleMetier } from "../../errors.js";
+import type { Prisma } from "../../generated/prisma/client.js";
+import { anneeMadagascar } from "../../temps.js";
 import { listerNuits } from "./tarif.js";
-import type { CreerReservationDTO } from "./reservation.schema.js";
+import type { CreerReservationDTO, FiltreReservation } from "./reservation.schema.js";
 
-const genererReference = () =>
-  `RES-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+// Numéro lisible et unique : RES-2026-000042.
+// upsert + increment se traduit par un seul ordre SQL (INSERT … ON CONFLICT DO UPDATE),
+// exécuté atomiquement par PostgreSQL : deux appels simultanés obtiennent 41 et 42, jamais 42 deux fois.
+async function prochaineReference(tx: Prisma.TransactionClient): Promise<string> {
+  const annee = anneeMadagascar();
+  const compteur = await tx.compteurReservation.upsert({
+    where: { annee },
+    create: { annee, dernierNumero: 1 },
+    update: { dernierNumero: { increment: 1 } },
+  });
+  return `RES-${annee}-${String(compteur.dernierNumero).padStart(6, "0")}`;
+}
 
 export const creerReservation = async (data: CreerReservationDTO) => {
   const chambre = await prisma.chambre.findUnique({
@@ -32,16 +44,19 @@ export const creerReservation = async (data: CreerReservationDTO) => {
     return {
       nuit,
       tarifApplique: tarifSaison ?? chambre.categorie.tarifNuit,
-      saisonId: tarifSaison ? saison!.id : null,
+      saisonId: saison && tarifSaison !== undefined ? saison.id : null,
     };
   });
 
+  // Le montant est TOUJOURS calculé ici, jamais reçu du client.
   const montantTotal = lignesNuitees.reduce((s, l) => s + l.tarifApplique, 0);
 
+  // Si la chambre est déjà prise, l'INSERT viole la contrainte EXCLUDE,
+  // la transaction est annulée (le compteur aussi) et le gestionnaire d'erreurs répond 409.
   return prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.create({
       data: {
-        reference: genererReference(),
+        reference: await prochaineReference(tx),
         chambreId: data.chambreId,
         clientNom: data.clientNom,
         clientTelephone: data.clientTelephone,
@@ -68,9 +83,9 @@ export const creerReservation = async (data: CreerReservationDTO) => {
   });
 };
 
-export const listerReservations = (statut?: string) =>
+export const listerReservations = (filtre: FiltreReservation) =>
   prisma.reservation.findMany({
-    where: statut ? { statut: statut as never } : {},
+    where: filtre.statut ? { statut: filtre.statut } : {},
     include: { chambre: true },
     orderBy: { createdAt: "desc" },
   });
@@ -84,16 +99,23 @@ export const trouverReservation = async (id: string) => {
   return r;
 };
 
+// Appelée uniquement par facturation, après un paiement vérifié (route /interne).
 export const confirmerReservation = async (id: string) => {
   const r = await trouverReservation(id);
 
-  if (r.statut === "CONFIRMEE") return r;               // idempotent : 2e appel sans effet
+  if (r.statut === "CONFIRMEE") return r; // idempotent : 2e appel sans effet
   if (r.statut !== "EN_ATTENTE_PAIEMENT") {
     throw RegleMetier(`Impossible de confirmer une réservation ${r.statut}`);
   }
 
-  return prisma.reservation.update({
-    where: { id, version: r.version },                   // verrouillage optimiste
+  // Verrouillage optimiste : on ne modifie que si personne n'a touché la ligne
+  // depuis notre lecture (même version, toujours en attente).
+  // updateMany ne lève pas d'erreur si rien ne correspond : il renvoie count = 0.
+  const { count } = await prisma.reservation.updateMany({
+    where: { id, version: r.version, statut: "EN_ATTENTE_PAIEMENT" },
     data: { statut: "CONFIRMEE", expireLe: null, version: { increment: 1 } },
   });
+  if (count === 0) throw Conflit("La réservation a été modifiée entre-temps, réessayez");
+
+  return trouverReservation(id);
 };

@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { lireId } from "@hotel/commun";
 import { creerChambreSchema, filtreChambreSchema } from "./chambre.schema.js";
 import * as service from "./chambre.service.js";
 
@@ -8,8 +9,7 @@ export const lister = async (req: Request, res: Response) => {
 };
 
 export const detail = async (req: Request, res: Response) => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  res.json(await service.trouverChambre(id));
+  res.json(await service.trouverChambre(lireId(req)));
 };
 
 export const creer = async (req: Request, res: Response) => {

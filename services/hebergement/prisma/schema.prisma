@@ -144,3 +144,13 @@ model ReservationNuitee {
   @@id([reservationId, nuit])
   @@map("reservation_nuitee")
 }
+
+// Un compteur par année : RES-2026-000001, RES-2026-000002…
+// L'upsert + increment est atomique, deux réservations simultanées
+// ne peuvent donc pas recevoir le même numéro.
+model CompteurReservation {
+  annee         Int @id
+  dernierNumero Int @map("dernier_numero")
+
+  @@map("compteur_reservation")
+}

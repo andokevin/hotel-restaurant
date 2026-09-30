@@ -1,5 +1,5 @@
 import { prisma } from "../../db.js";
-import { NotFound, Conflit } from "../../errors.js";
+import { NotFound, Conflit } from "@hotel/commun";
 import { trouverCategorie } from "../categorie/categorie.service.js";
 import type { CreerChambreDTO, FiltreChambre } from "./chambre.schema.js";
 

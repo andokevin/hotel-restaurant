@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aujourdhuiMadagascar } from "../../temps.js";
 
 export const creerReservationSchema = z
   .object({
@@ -13,13 +14,19 @@ export const creerReservationSchema = z
     canal: z.enum(["SITE_WEB", "RECEPTION", "FACEBOOK", "ASSISTANT_IA"]).default("RECEPTION"),
     langue: z.enum(["FR", "MG", "EN"]).default("FR"),
   })
-  .refine((d) => new Date(d.dateDepart) > new Date(d.dateArrivee), {
+  // Les dates sont des chaînes AAAA-MM-JJ : l'ordre alphabétique est l'ordre chronologique.
+  .refine((d) => d.dateDepart > d.dateArrivee, {
     message: "La date de départ doit être après la date d'arrivée",
     path: ["dateDepart"],
   })
-  .refine((d) => new Date(d.dateArrivee) >= new Date(new Date().toDateString()), {
+  .refine((d) => d.dateArrivee >= aujourdhuiMadagascar(), {
     message: "La date d'arrivée ne peut pas être dans le passé",
     path: ["dateArrivee"],
   });
 
+export const filtreReservationSchema = z.object({
+  statut: z.enum(["EN_ATTENTE_PAIEMENT", "CONFIRMEE", "EN_COURS", "TERMINEE", "ANNULEE"]).optional(),
+});
+
 export type CreerReservationDTO = z.infer<typeof creerReservationSchema>;
+export type FiltreReservation = z.infer<typeof filtreReservationSchema>;

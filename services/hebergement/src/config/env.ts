@@ -4,6 +4,8 @@ const schema = z.object({
   PORT: z.coerce.number().default(3001),
   DATABASE_URL: z.string().min(1),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  // Secret partagé avec les autres services pour les routes /interne
+  CLE_INTERNE: z.string().min(16),
 });
 
 const parsed = schema.safeParse(process.env);
