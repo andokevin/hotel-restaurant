@@ -6,3 +6,6 @@ export * from "./cle-interne.js";
 export * from "./validation.js";
 export * from "./identite.js";
 export * from "./roles.js";
+export * from "./evenements.js";
+export * from "./bus.js";
+export type { Job, Worker } from "bullmq";
