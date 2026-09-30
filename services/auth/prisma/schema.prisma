@@ -1,0 +1,53 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Mêmes valeurs que ROLES dans @hotel/commun. Une valeur par ligne, toujours.
+enum Role {
+  ADMIN
+  RECEPTIONNISTE
+  FEMME_MENAGE
+  RESTAURANT
+  COMPTABLE
+  COMMUNICATION
+  CLIENT
+}
+
+model Utilisateur {
+  id             String   @id @default(uuid()) @db.Uuid
+  // Toujours stocké en minuscules : "Rakoto@Mail.mg" et "rakoto@mail.mg" sont le même compte
+  email          String   @unique
+  nomComplet     String   @map("nom_complet")
+  // Format : scrypt$N$r$p$sel$empreinte (le mot de passe lui-même n'est jamais stocké)
+  motDePasseHash String   @map("mot_de_passe_hash")
+  role           Role
+  actif          Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  sessions Session[]
+
+  @@map("utilisateur")
+}
+
+// Une session = un jeton de rafraîchissement. Il change à chaque utilisation (rotation).
+model Session {
+  id            String    @id @default(uuid()) @db.Uuid
+  utilisateurId String    @map("utilisateur_id") @db.Uuid
+  // SHA-256 du jeton : si la base fuit, les jetons en clair ne sont pas dedans
+  jetonHash     String    @unique @map("jeton_hash")
+  expireLe      DateTime  @map("expire_le") @db.Timestamptz
+  revoqueLe     DateTime? @map("revoque_le") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  utilisateur Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  @@index([utilisateurId])
+  @@map("session")
+}

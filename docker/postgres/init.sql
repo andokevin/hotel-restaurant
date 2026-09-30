@@ -5,7 +5,9 @@
 -- Une base par service
 CREATE DATABASE hebergement_db;
 CREATE DATABASE facturation_db;
+CREATE DATABASE auth_db;
 
 -- Bases de test (vidées par les tests, jamais utilisées en dev)
 CREATE DATABASE hebergement_test_db;
 CREATE DATABASE facturation_test_db;
+CREATE DATABASE auth_test_db;
