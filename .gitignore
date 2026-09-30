@@ -7,3 +7,6 @@ services/facturation/.agents/
 services/facturation/skills-lock.json
 services/facturation/.claude/
 services/facturation/.windsurf/
+
+# Worktrees et réglages locaux des agents
+.claude/
