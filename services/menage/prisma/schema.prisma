@@ -1,0 +1,70 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tables techniques (docs/modele-donnees.md, « Mécanismes communs »)
+// ---------------------------------------------------------------------------
+
+model OutboxEvenement {
+  id        String    @id @default(uuid()) @db.Uuid
+  type      String
+  payload   Json
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  publieLe  DateTime? @map("publie_le") @db.Timestamptz
+
+  @@index([publieLe, createdAt])
+  @@map("outbox_evenement")
+}
+
+model EvenementTraite {
+  evenementId String   @id @map("evenement_id") @db.Uuid
+  traiteLe    DateTime @default(now()) @map("traite_le") @db.Timestamptz
+
+  @@map("evenement_traite")
+}
+
+// ---------------------------------------------------------------------------
+// menage-service (docs/modele-donnees.md) : une seule table.
+// Chambres et employées appartiennent à d'autres services : id + snapshot.
+// ---------------------------------------------------------------------------
+
+enum TypeTache {
+  QUOTIDIEN
+  DEPART
+}
+
+enum StatutTache {
+  A_FAIRE
+  EN_COURS
+  TERMINEE
+}
+
+model TacheMenage {
+  id            String      @id @default(uuid()) @db.Uuid
+  reservationId String      @map("reservation_id") @db.Uuid // hebergement, sans FK
+  chambreId     String      @map("chambre_id") @db.Uuid // hebergement, sans FK
+  chambreNumero String      @map("chambre_numero") // snapshot
+  type          TypeTache
+  datePrevue    DateTime    @map("date_prevue") @db.Date
+  statut        StatutTache @default(A_FAIRE)
+  assigneeId    String?     @map("assignee_id") @db.Uuid // auth, sans FK
+  assigneeNom   String?     @map("assignee_nom") // snapshot
+  commenceLe    DateTime?   @map("commence_le") @db.Timestamptz
+  termineLe     DateTime?   @map("termine_le") @db.Timestamptz
+  remarques     String? // objet oublié, dégât
+  version       Int         @default(1)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Un événement rejoué ne crée jamais deux fois la même tâche
+  @@unique([reservationId, type, datePrevue])
+  @@index([datePrevue, statut])
+  @@map("tache_menage")
+}
