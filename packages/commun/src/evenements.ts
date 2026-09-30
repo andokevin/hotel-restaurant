@@ -141,7 +141,7 @@ export type Consommateur = "hebergement" | "facturation" | "menage" | "stock" | 
 export const ABONNEMENTS: Record<TypeEvenement, readonly Consommateur[]> = {
   "reservation.creee": ["facturation"],
   "reservation.confirmee": [], // notification (V2)
-  "paiement.recu": ["hebergement"], // + restaurant en phase 6
+  "paiement.recu": ["hebergement", "restaurant"],
   "sejour.commence": ["menage"],
   "sejour.termine": ["menage", "facturation"],
   "menage.termine": ["hebergement", "stock"],

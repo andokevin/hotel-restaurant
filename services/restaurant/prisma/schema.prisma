@@ -1,0 +1,143 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tables techniques (docs/modele-donnees.md, « Mécanismes communs »)
+// ---------------------------------------------------------------------------
+
+model OutboxEvenement {
+  id        String    @id @default(uuid()) @db.Uuid
+  type      String
+  payload   Json
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  publieLe  DateTime? @map("publie_le") @db.Timestamptz
+
+  @@index([publieLe, createdAt])
+  @@map("outbox_evenement")
+}
+
+model EvenementTraite {
+  evenementId String   @id @map("evenement_id") @db.Uuid
+  traiteLe    DateTime @default(now()) @map("traite_le") @db.Timestamptz
+
+  @@map("evenement_traite")
+}
+
+// ---------------------------------------------------------------------------
+// restaurant-service (docs/modele-donnees.md). La préparation et le paiement sont
+// deux statuts indépendants. Couche V1 : pas de livraison ni de commande à distance.
+// ---------------------------------------------------------------------------
+
+enum CategoriePlat {
+  ENTREE
+  PLAT
+  DESSERT
+  BOISSON
+}
+
+enum CanalCommande {
+  SUR_PLACE
+  A_EMPORTER
+  LIVRAISON
+}
+
+enum StatutCommande {
+  RECUE
+  EN_PREPARATION
+  PRETE
+  REMISE
+  ANNULEE
+}
+
+enum StatutPaiementCommande {
+  NON_PAYEE
+  PAYEE
+  A_LA_LIVRAISON
+  IMPUTEE_CHAMBRE
+}
+
+model Menu {
+  id        String   @id @default(uuid()) @db.Uuid
+  nom       Json // { fr, mg?, en? } ex. Carte du midi
+  actif     Boolean  @default(false) // seuls les menus actifs sont publiés (lane Communication)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  plats Plat[]
+
+  @@map("menu")
+}
+
+model Plat {
+  id                  String        @id @default(uuid()) @db.Uuid
+  menuId              String        @map("menu_id") @db.Uuid
+  nom                 Json
+  description         Json?
+  categorie           CategoriePlat
+  prix                Int // Ar, CHECK > 0
+  imageUrl            String?       @map("image_url")
+  tempsPreparationMin Int           @default(15) @map("temps_preparation_min")
+  disponible          Boolean       @default(true)
+  disponibleADistance Boolean       @default(false) @map("disponible_a_distance")
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  menu   Menu            @relation(fields: [menuId], references: [id])
+  lignes LigneCommande[]
+
+  @@map("plat")
+}
+
+model Commande {
+  id              String                 @id @default(uuid()) @db.Uuid
+  reference       String                 @unique // CMD-2026-000045
+  canal           CanalCommande
+  tableNumero     String?                @map("table_numero")
+  clientId        String?                @map("client_id") @db.Uuid // auth, sans FK
+  clientNom       String?                @map("client_nom") // snapshot
+  clientTelephone String?                @map("client_telephone") // snapshot
+  heureSouhaitee  DateTime?              @map("heure_souhaitee") @db.Timestamptz
+  statut          StatutCommande         @default(RECUE)
+  statutPaiement  StatutPaiementCommande @default(NON_PAYEE) @map("statut_paiement")
+  reservationId   String?                @map("reservation_id") @db.Uuid // imputation à la chambre, sans FK
+  chambreNumero   String?                @map("chambre_numero") // snapshot
+  montantTotal    Int                    @map("montant_total")
+  fraisLivraison  Int                    @default(0) @map("frais_livraison")
+  serviPar        String?                @map("servi_par") @db.Uuid // auth, sans FK
+  version         Int                    @default(1)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+
+  lignes LigneCommande[]
+
+  @@index([statut])
+  @@map("commande")
+}
+
+model LigneCommande {
+  id           String @id @default(uuid()) @db.Uuid
+  commandeId   String @map("commande_id") @db.Uuid
+  platId       String @map("plat_id") @db.Uuid
+  platNom      String @map("plat_nom") // snapshot dans la langue de la commande
+  prixUnitaire Int    @map("prix_unitaire") // snapshot : un changement de prix ne modifie pas le passé
+  quantite     Int // CHECK > 0
+
+  commande Commande @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+  plat     Plat     @relation(fields: [platId], references: [id])
+
+  @@map("ligne_commande")
+}
+
+model CompteurCommande {
+  annee         Int @id
+  dernierNumero Int @map("dernier_numero")
+
+  @@map("compteur_commande")
+}
