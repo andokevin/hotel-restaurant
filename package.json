@@ -5,8 +5,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev:hebergement": "pnpm --filter @hotel/hebergement dev"
+    "build:commun": "pnpm --filter @hotel/commun build",
+    "dev:hebergement": "pnpm --filter @hotel/hebergement dev",
+    "test": "pnpm -r --if-present run test"
   },
   "keywords": [],
   "author": "",

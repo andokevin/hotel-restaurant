@@ -1,28 +1,23 @@
 {
-  "name": "hebergement",
+  "name": "@hotel/hebergement",
   "private": true,
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc",
-    "start": "node --env-file=.env dist/server.js"
+    "start": "node --env-file=.env dist/server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
+    "@hotel/commun": "workspace:*",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "pg": "^8.23.0",
-    "pino": "^10.3.1",
-    "pino-http": "^11.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -31,7 +26,6 @@
     "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.1",
-    "dotenv": "^18.0.2",
     "prisma": "7.10.0",
     "supertest": "^7.3.0",
     "tsx": "^4.23.15",
