@@ -12,6 +12,10 @@ const schema = z.object({
   AUTH_URL: z.url(),
   HEBERGEMENT_URL: z.url(),
   FACTURATION_URL: z.url(),
+  MENAGE_URL: z.url(),
+  STOCK_URL: z.url(),
+  RESTAURANT_URL: z.url(),
+  COMPTABILITE_URL: z.url(),
   // Tentatives de connexion par IP et par fenêtre de 15 minutes
   LIMITE_CONNEXIONS: z.coerce.number().int().default(10),
 });

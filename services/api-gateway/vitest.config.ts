@@ -18,6 +18,10 @@ export default defineConfig({
       AUTH_URL: "http://127.0.0.1:1",
       HEBERGEMENT_URL: "http://127.0.0.1:1",
       FACTURATION_URL: "http://127.0.0.1:1",
+      MENAGE_URL: "http://127.0.0.1:1",
+      STOCK_URL: "http://127.0.0.1:1",
+      RESTAURANT_URL: "http://127.0.0.1:1",
+      COMPTABILITE_URL: "http://127.0.0.1:1",
     },
   },
 });

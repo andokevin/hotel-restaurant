@@ -1,6 +1,6 @@
 import type { Role } from "@hotel/commun";
 
-export type NomService = "auth" | "hebergement" | "facturation";
+export type NomService = "auth" | "hebergement" | "facturation" | "menage" | "stock" | "restaurant" | "comptabilite";
 
 // PUBLIC : sans compte. CONNECTE : n'importe quel compte. Sinon : liste des rôles autorisés.
 export type Acces = "PUBLIC" | "CONNECTE" | readonly Role[];
@@ -62,4 +62,15 @@ export const REGLES: readonly Regle[] = [
   { methode: "get", chemin: "/factures/:id", service: "facturation", acces: ["CLIENT", ...PERSONNEL_CAISSE] },
   { methode: "post", chemin: "/factures/:id/encaissements", service: "facturation", acces: ["RECEPTIONNISTE", "RESTAURANT", "ADMIN"] },
   { methode: "post", chemin: "/factures/:id/cloturer", service: "facturation", acces: RECEPTION },
+
+  // --- menage ---
+  { methode: "get", chemin: "/taches", service: "menage", acces: ["FEMME_MENAGE", ...RECEPTION] },
+  { methode: "post", chemin: "/taches/:id/demarrer", service: "menage", acces: ["FEMME_MENAGE"] },
+  { methode: "post", chemin: "/taches/:id/terminer", service: "menage", acces: ["FEMME_MENAGE"] },
+
+  // --- stock ---
+  { methode: "get", chemin: "/articles", service: "stock", acces: ["FEMME_MENAGE", "RECEPTIONNISTE", "COMPTABLE", "ADMIN"] },
+  { methode: "post", chemin: "/articles", service: "stock", acces: ["ADMIN"] },
+  { methode: "get", chemin: "/articles/:id/mouvements", service: "stock", acces: ["COMPTABLE", "ADMIN"] },
+  { methode: "post", chemin: "/articles/:id/mouvements", service: "stock", acces: ["COMPTABLE", "ADMIN"] },
 ];
