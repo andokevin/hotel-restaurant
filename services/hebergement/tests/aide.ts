@@ -1,11 +1,10 @@
 import request from "supertest";
-import { ABONNEMENTS, nomFile, type Identite, type TypeEvenement } from "@hotel/commun";
+import { ABONNEMENTS, aujourdhuiMadagascar, nomFile, type Identite, type TypeEvenement } from "@hotel/commun";
 import { app } from "../src/app.js";
 import { bus } from "../src/bus.js";
 import { prisma } from "../src/db.js";
 import type { EtatMenage } from "../src/generated/prisma/client.js";
 import { FILE_EXPIRATIONS } from "../src/modules/reservation/expiration.js";
-import { aujourdhuiMadagascar } from "../src/temps.js";
 
 export const viderBase = () =>
   prisma.$executeRawUnsafe(

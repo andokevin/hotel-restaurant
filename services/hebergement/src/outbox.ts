@@ -1,4 +1,4 @@
-import { lireErreurBase, type ContenuEvenement, type TypeEvenement } from "@hotel/commun";
+import { estDoublonEvenement, relayerOutbox as relayer, type ContenuEvenement, type TypeEvenement } from "@hotel/commun";
 import { bus } from "./bus.js";
 import { prisma } from "./db.js";
 import type { Prisma } from "./generated/prisma/client.js";
@@ -9,34 +9,19 @@ import { logger } from "./logger.js";
 export const ecrireEvenement = <T extends TypeEvenement>(tx: Prisma.TransactionClient, type: T, payload: ContenuEvenement<T>) =>
   tx.outboxEvenement.create({ data: { type, payload } });
 
-// Relais : publie les événements en attente, dans l'ordre, puis les marque publiés.
-// Exécuté toutes les 2 secondes par un job répétable (voir jobs.ts).
-export async function relayerOutbox(lot = 100): Promise<number> {
-  const enAttente = await prisma.outboxEvenement.findMany({
-    where: { publieLe: null },
-    orderBy: { createdAt: "asc" },
-    take: lot,
-  });
-
-  const publies: string[] = [];
-  try {
-    for (const evt of enAttente) {
-      await bus.publier(evt);
-      publies.push(evt.id);
-    }
-  } catch (err) {
-    // Redis indisponible : on marque ce qui est parti, le reste sera repris au prochain passage.
-    logger.warn({ err }, "relais outbox interrompu");
-  }
-
-  if (publies.length > 0) {
-    // Si le processus plante ICI (après l'envoi, avant cette mise à jour), les événements
-    // seront republiés au prochain passage : BullMQ ignore les doublons (jobId = id de l'événement)
-    // et les consommateurs sont idempotents (table evenement_traite).
-    await prisma.outboxEvenement.updateMany({ where: { id: { in: publies } }, data: { publieLe: new Date() } });
-  }
-  return publies.length;
-}
+// Relais (job toutes les 2 s) : la boucle est dans @hotel/commun, l'accès à NOTRE table ici.
+export const relayerOutbox = (lot = 100) =>
+  relayer(
+    bus,
+    {
+      lireEnAttente: (n) => prisma.outboxEvenement.findMany({ where: { publieLe: null }, orderBy: { createdAt: "asc" }, take: n }),
+      marquerPublies: async (ids) => {
+        await prisma.outboxEvenement.updateMany({ where: { id: { in: ids } }, data: { publieLe: new Date() } });
+      },
+    },
+    logger,
+    lot,
+  );
 
 // Côté consommateur : exécute `effet` une seule fois par événement.
 // L'insertion dans evenement_traite et l'effet sont dans la même transaction :
@@ -53,9 +38,7 @@ export async function traiterUneFois(
     });
     return "traite";
   } catch (err) {
-    // On vérifie le NOM de la contrainte : un P2002 levé par l'effet lui-même
-    // (autre contrainte d'unicité) est une vraie erreur, pas un doublon d'événement.
-    if (lireErreurBase(err)?.contrainte === "evenement_traite_pkey") return "doublon";
+    if (estDoublonEvenement(err)) return "doublon";
     throw err;
   }
 }

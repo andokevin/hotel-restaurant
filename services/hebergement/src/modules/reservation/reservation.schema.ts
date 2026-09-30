@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aujourdhuiMadagascar } from "../../temps.js";
+import { aujourdhuiMadagascar } from "@hotel/commun";
 
 // Décision D3 : le client choisit une CATÉGORIE, le serveur choisit la chambre.
 export const creerReservationSchema = z

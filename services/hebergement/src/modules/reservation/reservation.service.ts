@@ -1,10 +1,20 @@
 import { z } from "zod";
-import { AppError, Conflit, lireErreurBase, NotFound, RegleMetier, type Enveloppe, type Identite } from "@hotel/commun";
+import {
+  anneeMadagascar,
+  AppError,
+  aujourdhuiMadagascar,
+  Conflit,
+  enTexte,
+  lireErreurBase,
+  NotFound,
+  RegleMetier,
+  type Enveloppe,
+  type Identite,
+} from "@hotel/commun";
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { logger } from "../../logger.js";
 import { ecrireEvenement, traiterUneFois } from "../../outbox.js";
-import { anneeMadagascar, aujourdhuiMadagascar, enTexte } from "../../temps.js";
 import { annulerExpiration, DELAI_PAIEMENT_MS, planifierExpiration } from "./expiration.js";
 import { listerNuits } from "./tarif.js";
 import { verifierTransition } from "./transitions.js";
@@ -220,8 +230,10 @@ export async function creerReservation(data: CreerReservationDTO, identite: Iden
 async function confirmerDansTransaction(tx: Prisma.TransactionClient, id: string): Promise<void> {
   const r = await tx.reservation.findUnique({ where: { id } });
   if (!r) throw NotFound("Réservation");
-  if (r.statut === "CONFIRMEE") return; // déjà fait : idempotent
-  verifierTransition(r.statut, "CONFIRMEE");
+  // Déjà confirmée, en cours ou terminée : rien à faire. C'est le cas d'un paiement de SOLDE
+  // (consommations restaurant réglées pendant ou après le séjour), pas d'une anomalie.
+  if (r.statut === "CONFIRMEE" || r.statut === "EN_COURS" || r.statut === "TERMINEE") return;
+  verifierTransition(r.statut, "CONFIRMEE"); // reste : ANNULEE → refus (paiement arrivé trop tard)
 
   // Verrouillage optimiste : si le job d'expiration l'a annulée entre notre lecture et
   // cette écriture, la condition ne correspond plus et count vaut 0.

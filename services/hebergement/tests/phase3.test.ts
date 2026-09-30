@@ -269,6 +269,17 @@ describe("Consommateur paiement.recu", () => {
     expect(await prisma.evenementTraite.count()).toBe(1); // marqué traité : BullMQ ne réessaiera pas
   });
 
+  it("paiement du SOLDE pendant le séjour : rien à confirmer, aucune alerte", async () => {
+    const cat = await creerCategorie();
+    await creerChambre(cat.id, "101");
+    const r = await reserver(cat.id, "2030-10-10", "2030-10-12");
+    await prisma.reservation.update({ where: { id: r.body.id }, data: { statut: "EN_COURS" } });
+
+    await expect(traiterPaiementRecu(paiement(r.body.id))).resolves.toBeUndefined();
+    expect((await lire(r.body.id)).statut).toBe("EN_COURS");
+    expect(await evenementsOutbox("reservation.confirmee")).toHaveLength(0);
+  });
+
   it("de bout en bout dans BullMQ : publié par le bus, lu par le worker", async () => {
     const cat = await creerCategorie();
     await creerChambre(cat.id, "101");
