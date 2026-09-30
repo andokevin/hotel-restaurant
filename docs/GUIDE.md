@@ -1154,3 +1154,208 @@ check-out une 2e fois → 422 (transition interdite)
 > 2. **Normaliser avant de valider** : `z.string().transform(normaliser).pipe(z.string().regex(…))`.
 > 3. **Deux formes pour un champ** : `z.union([email.transform(v => ({ email: v })), telephone.transform(v => ({ telephone: v }))])`.
 > 4. **Reprendre une migration échouée** : lire `_prisma_migrations`, finir à la main, `prisma migrate resolve --applied <nom>`, puis `migrate status` et `migrate diff`.
+
+---
+
+## Journal — Phase 4 : facturation + Papi.mg
+
+### Décision prise en cours de phase : email obligatoire
+
+> « On a besoin du téléphone pour le paiement, mais le mail doit être obligatoire pour le reçu et les notifications. »
+
+- `utilisateur.email` et `reservation.client_email` passent en **NOT NULL** (bases de dev vides : aucun risque ; bases de test vidées d'abord pour éviter la panne vue avec le téléphone).
+- Le téléphone reste l'identifiant de connexion et part à Papi (`payerPhone`) ; l'email part à Papi (`payerEmail`) et est copié sur la facture pour le reçu.
+- Contrats `reservation.creee` / `reservation.confirmee` : email obligatoire, téléphone ajouté.
+- **Pas encore fait** : l'**envoi** du reçu par email (voir « Question ouverte » en fin de section).
+
+### Contrat
+
+| Route (via `/api`) | Rôles | Entrée | Sortie | Erreurs |
+|---|---|---|---|---|
+| `POST /paiements` | CLIENT (sa réservation), réception | `{ reservationId }` **ou** `{ factureId }` (tout autre champ → 400) | 201 `{ paiementId, url, montant }` | 404, 409 `FACTURE_DEJA_PAYEE` / `PAIEMENT_EN_COURS`, 422 `RESERVATION_ANNULEE`, 502 `PAPI_*` |
+| `POST /paiements/notification?paiement=&jeton=` | **public** (Papi) | notification Papi | 200 `{ recu: true }` | 401 si le jeton ne correspond pas |
+| `GET /paiements/:id` | CLIENT (le sien), caisse, comptable | — | statut du paiement (sans empreintes) | 404 |
+| `GET /factures` · `/factures/mes-factures` · `/factures/:id` | caisse, comptable · CLIENT · les deux | `?reservationId`, `?statut` | facture(s) + lignes + paiements | 404 |
+| `POST /factures/:id/encaissements` | réception, restaurant | `{ montant }` (espèces) | facture | 409, 422 `MONTANT_SUPERIEUR_AU_RESTE` |
+| `POST /factures/:id/cloturer` | réception | — | facture CLOTUREE | 422 (reste à payer) |
+
+**Événements consommés** : `reservation.creee` (émettre la facture), `sejour.termine` (clôturer si soldée), `consommation.imputee` (ligne RESTAURANT). **Émis** : `paiement.recu`, `facture.cloturee`.
+
+### Données : écarts assumés avec `modele-donnees.md`
+
+| Ajout / écart | Pourquoi |
+|---|---|
+| `facture.client_id` | Un CLIENT ne voit et ne paie que **ses** factures |
+| `facture.client_email`, `client_telephone` (snapshots) | Reçu par email, paiement mobile |
+| `paiement.jeton_hash`, `notification_token_hash` | Authentifier les notifications Papi sans stocker de secret en clair |
+| `paiement.url_paiement`, `erreur` | Renvoyer le même lien (double clic) ; tracer un échec |
+| Statut `ANOMALIE` | L'argent a été débité mais on ne peut pas l'accepter : montant faux, facture déjà soldée, lien remplacé. Il faut un humain. |
+| `paiement.methode` nullable | Inconnue tant que Papi n'a pas dit comment le client a payé |
+| `CHECK (montant_paye <= montant_total)` | Le surpaiement est refusé **par la base** |
+| Index unique **partiel** : un seul paiement `EN_ATTENTE` par facture | Deux clics simultanés ne créent jamais deux liens |
+| Enum `MethodePaiement` : `ESPECES` ajouté, `AUTRE` retiré | Conforme au modèle (reconstruction du type : 0 paiement en base) |
+
+### Le parcours, de bout en bout
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant GW as gateway
+  participant H as hebergement
+  participant F as facturation
+  participant P as Papi
+  participant Q as BullMQ
+  C->>GW: POST /reservations
+  GW->>H: (JWT vérifié)
+  Note over H: TX : réservation + outbox reservation.creee
+  H-->>Q: relais (2 s) → evt.facturation.reservation.creee
+  Q->>F: facture SEJOUR EMISE (FAC-2026-…)
+  C->>GW: POST /paiements { reservationId }
+  GW->>F: 
+  F->>H: GET /interne/reservations/:id (encore valable ?)
+  Note over F: paiement EN_ATTENTE + SHA-256(jeton)
+  F->>P: POST /dashboard/api/payment-links (hors transaction)
+  P-->>F: paymentLink + notificationToken (→ SHA-256)
+  F-->>C: { url }
+  C->>P: paie (MVola…)
+  P->>GW: POST /api/paiements/notification?paiement=…&jeton=…
+  GW->>F: route publique + clé interne
+  Note over F: jeton OK → job en file → 200 immédiat
+  Q->>F: worker : notificationToken, référence, montant, updateMany EN_ATTENTE
+  Note over F: TX : REUSSI + facture PAYEE + outbox paiement.recu
+  F-->>Q: relais → evt.hebergement.paiement.recu
+  Q->>H: réservation CONFIRMEE, job d'expiration supprimé
+```
+
+### Les règles de sécurité de l'énoncé, et où elles sont dans le code
+
+| Règle | Code | Test |
+|---|---|---|
+| Le montant vient du serveur | `montant = facture.montantTotal - facture.montantPaye` ; schéma `.strict()` : un champ `montant` envoyé par le navigateur donne **400** | « un montant envoyé par le navigateur est refusé » |
+| Jeton dans l'URL, seul son SHA-256 stocké | `randomBytes(32)` → `empreinteSha256(jeton)` ; `correspondAEmpreinte` (temps constant) | « le jeton n'est stocké qu'haché », « jeton faux : 401 » |
+| **En plus** (API actuelle) : `notificationToken` | reçu à la création du lien, stocké haché, vérifié dans le worker | « notificationToken faux : refus définitif » |
+| Montant reçu = montant attendu | `n.amount !== p.montant` → `ANOMALIE` | « montant reçu différent : ANOMALIE » |
+| Idempotence sur la transaction | `jobId = papi-<paymentReference>` + `updateMany({ where: { statut: "EN_ATTENTE" } })` + `reference_externe` unique | « encaissé UNE fois » |
+| `successUrl` n'est jamais une preuve | elle mène à `/paiement/retour?paiement=…`, qui **interroge** `GET /paiements/:id` | — (front, phase 8) |
+| Jamais d'appel réseau dans une transaction | `creerLienPaiement` après le `create`, **hors** `$transaction` | — (relecture de code) |
+| Callback : 200 immédiat, traitement par BullMQ | `recevoirNotification` → `file.add` → 200 ; `traiterNotification` dans le worker | « 200 immédiat, traitement délégué » |
+
+### Code expliqué
+
+**1. Un seul paiement en attente par facture : l'index unique partiel**
+
+```sql
+CREATE UNIQUE INDEX "paiement_un_en_attente_par_facture" ON "paiement" ("facture_id") WHERE "statut" = 'EN_ATTENTE';
+```
+Un index unique **partiel** ne s'applique qu'aux lignes qui vérifient le `WHERE`. Une facture peut avoir dix paiements `ECHOUE` et un `REUSSI`, mais **jamais deux `EN_ATTENTE`**. Trois clics simultanés : le premier `INSERT` passe, les deux autres violent l'index. Le code les rattrape et renvoie le lien existant, ou un 409 « en cours de création » si Papi n'a pas encore répondu. Prisma ne sait pas écrire cet index, il est dans la migration SQL.
+
+**2. Le surpaiement refusé par la base**
+
+```sql
+ALTER TABLE "facture" ADD CONSTRAINT "facture_pas_de_surpaiement" CHECK ("montant_paye" <= "montant_total");
+```
+```ts
+await tx.facture.update({ where: { id }, data: { montantPaye: { increment: montant } } });
+```
+`increment` devient `SET montant_paye = montant_paye + $1`, calculé par PostgreSQL. Si le résultat dépasse le total, **la ligne n'est pas écrite** et la transaction échoue sur `facture_pas_de_surpaiement`. Le worker attrape exactement cette contrainte et marque le paiement `ANOMALIE` : la réceptionniste a encaissé en espèces pendant que le client payait aussi par MVola, il faut le rembourser. Sans cette contrainte, il aurait fallu « lire le reste, comparer, écrire », avec une fenêtre de concurrence entre les deux.
+
+**3. Le worker : deux preuves d'authenticité, puis une écriture conditionnelle**
+
+```ts
+if (!correspondAEmpreinte(n.notificationToken, p.notificationTokenHash)) throw new UnrecoverableError(…);
+// …
+const { count } = await tx.paiement.updateMany({
+  where: { id: paiementId, statut: "EN_ATTENTE" },
+  data: { statut: "REUSSI", methode, referenceExterne: n.paymentReference },
+});
+if (count === 0) return;                 // déjà encaissé par une autre notification
+await appliquerPaiement(tx, …);          // facture + outbox paiement.recu, même transaction
+```
+- Le **jeton de l'URL** est vérifié à la réception (route HTTP), le **notificationToken** dans le worker. Un attaquant devrait voler les deux.
+- `UnrecoverableError` : une notification forgée ne deviendra jamais valide, et BullMQ ne la réessaie pas.
+- `updateMany` conditionnel : deux notifications différentes pour le même paiement ne peuvent pas encaisser deux fois. La seconde obtient `count = 0`.
+
+**4. La facture existe toujours au moment de payer**
+
+Le client clique sur « Payer » une seconde après avoir réservé, avant que `reservation.creee` soit passé par le relais. `obtenirFactureSejour` relit alors la réservation en REST et émet la facture elle-même. Les deux chemins sont idempotents (`reservation_id` unique) : l'événement, arrivé ensuite, retrouve la facture. Le test « facture pas encore émise » le vérifie.
+
+**5. La clôture et la copie au comptable**
+
+`updateMany({ where: { id, statut: "PAYEE" }, data: { statut: "CLOTUREE" } })`, puis `facture.cloturee` dans l'outbox, avec **toutes les lignes et leur `origine`**. C'est la copie du BPMN, et c'est grâce à `origine` que la comptabilité (phase 7) saura quelle part reverser au restaurant.
+
+### Pièges rencontrés
+
+1. **L'ancienne URL de Papi était restée dans `.env`** (`https://api.papi.mg`) : remplacée par `https://app.papi.mg` (Reclamia). Ta clé n'a pas été touchée.
+2. **Fausse alerte dans hebergement** : chaque paiement émet `paiement.recu`, y compris le **solde** des consommations restaurant pendant le séjour. hebergement tentait de « confirmer » une réservation déjà EN_COURS et journalisait « remboursement à prévoir ». Corrigé : seule une réservation ANNULEE alerte (test ajouté).
+3. **`prisma migrate diff` ne voit pas les index partiels ni les CHECK** : après la migration, il affiche « empty migration » alors que la base contient plus que le schéma. C'est pratique (pas de dérive signalée), mais cela veut dire que **ces règles n'existent que dans le SQL des migrations**. Il ne faut jamais les supprimer en régénérant une migration.
+4. **Zod 4** : `.passthrough()` est déprécié, on écrit `.loose()`.
+5. **`validDuration` de Papi** : l'unité n'est pas documentée clairement (l'exemple de la doc donne 60 et un lien valable… 60 **heures**). On ne l'envoie pas plutôt que de deviner. L'expiration à 30 min est gérée chez nous, et un paiement tardif est refusé **avant** la création du lien (réservation ANNULEE → 422, facture annulée).
+
+### Limites connues
+
+- **`X-Papi-Signature` n'est pas vérifiée** : la procédure officielle (« Securing notifications ») n'a pas pu être lue, et Reclamia ne la vérifie pas non plus. On ne l'invente pas. Nos deux vérifications (jeton d'URL + `notificationToken`) sont en place.
+- Les paiements en `ANOMALIE` ne sont visibles que dans les logs (`error`) et en base : un écran ADMIN viendra en phase 8. Aucun remboursement automatique.
+- La facture **restaurant** (client qui ne loge pas à l'hôtel) sera créée en phase 6, par une route interne appelée par le service restaurant : les prix viendront de sa base, pas du navigateur.
+- Le reçu n'est pas encore **envoyé** par email.
+
+### Commandes pour tester à la main
+
+**Sans compte Papi (faux Papi local)** :
+```bash
+docker compose up -d postgres redis && pnpm build:commun
+pnpm --filter @hotel/facturation exec prisma migrate deploy
+# services/facturation/.env : PAPI_BASE_URL=http://localhost:4010  et  PUBLIC_URL=http://localhost:3000
+pnpm --filter @hotel/facturation faux-papi     # terminal 1
+pnpm dev                                       # terminal 2
+ADMIN_MOT_DE_PASSE='…' bash scripts/scenario-phase4.sh   # terminal 3
+```
+Sortie obtenue lors de l'essai (bases de test) :
+```
+RES-2026-000002 · EN_ATTENTE_PAIEMENT · 500000 Ar
+{"code":"VALIDATION_ERROR",…"Unrecognized key: \"montant\""}  → 400  (montant envoyé par le navigateur)
+lien Papi : http://localhost:4010/payer/… · montant 500000 Ar
+facture : FAC-2026-000003 EMISE 500000
+{"code":"NON_AUTORISE","message":"Notification non authentifiée"}  → 401     (notification forgée)
+page Papi → redirection 302 vers http://localhost:5173/paiement/retour?paiement=…
+paiement : REUSSI (MVOLA)
+facture : FAC-2026-000003 PAYEE 500000/500000 Ar
+réservation (confirmée par l'événement paiement.recu) : CONFIRMEE
+check-in → 200 · check-out → 200
+facture après le départ (sejour.termine) : CLOTUREE
+copie pour le comptable : publiée · dans la file comptabilite : 1
+```
+Tu peux aussi ouvrir le lien `http://localhost:4010/payer/…` dans un navigateur : la page propose « Payer » ou « Refuser », et le moyen de paiement.
+
+**Avec le vrai Papi (mode test)**, via le tunnel :
+```bash
+cloudflared tunnel --url http://localhost:3000        # → https://xxx.trycloudflare.com
+# services/facturation/.env :
+#   PAPI_BASE_URL=https://app.papi.mg    PAPI_MODE_TEST=true
+#   PUBLIC_URL=https://xxx.trycloudflare.com          (change à chaque lancement du tunnel)
+# redémarrer facturation, puis ouvrir dans un navigateur l'url renvoyée par POST /api/paiements
+```
+La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notification?paiement=…&jeton=…`. Les logs de facturation montrent « notification Papi mise en file », puis le paiement passe à `REUSSI`. **Première vraie notification : note sa forme exacte** (champs, casse de `paymentStatus`, `paymentMethod`). Le schéma est permissif, mais c'est la première fois qu'on la verra, comme le soulignait Reclamia.
+
+> **À refaire de mémoire — phase 4**
+>
+> 1. **Index unique partiel** : `CREATE UNIQUE INDEX … ON paiement (facture_id) WHERE statut = 'EN_ATTENTE';`
+> 2. **Surpaiement impossible** : `CHECK (montant_paye <= montant_total)` + `update({ data: { montantPaye: { increment: montant } } })`, et attraper la contrainte `facture_pas_de_surpaiement`.
+> 3. **Secret stocké haché** : `const jeton = randomBytes(32).toString("base64url")` → stocker `sha256(jeton)` → comparer avec `timingSafeEqual`.
+> 4. **Encaisser une seule fois** : `updateMany({ where: { id, statut: "EN_ATTENTE" }, data: { statut: "REUSSI" } })` → `if (count === 0) return;`
+> 5. **Refuser un champ en trop** : `z.object({ reservationId: z.uuid() }).strict()` (le client ne peut pas glisser un `montant`).
+
+### Questions d'entretien ajoutées
+
+**Le client paie par MVola pendant que la réceptionniste encaisse en espèces : que se passe-t-il ?**
+> Le premier encaissement solde la facture. Quand la notification MVola arrive, `montant_paye + montant` dépasserait le total : la contrainte CHECK refuse l'écriture, la transaction est annulée, et le paiement passe en `ANOMALIE` pour être remboursé. Il n'y a jamais d'argent compté deux fois dans la facture.
+
+**Pourquoi vérifier deux secrets (jeton d'URL et `notificationToken`) ?**
+> Le jeton, c'est nous qui l'avons créé : il prouve que l'appel vise bien ce paiement. Le `notificationToken`, c'est Papi qui nous l'a donné : il prouve que l'appel vient de quelqu'un qui a vu la réponse de Papi. Voler l'URL (dans un log, par exemple) ne suffit donc pas.
+
+**Pourquoi un index partiel plutôt qu'une vérification dans le code ?**
+> Pour la même raison que la contrainte EXCLUDE : « je regarde s'il existe un paiement en attente, sinon j'en crée un » laisse une fenêtre où deux requêtes voient « aucun » et créent chacune le leur. L'index est vérifié au moment de l'écriture, de façon atomique.
+
+### Question ouverte (à trancher)
+
+**Envoi du reçu par email** : les données sont prêtes (email obligatoire, facture complète, événements `paiement.recu` et `facture.cloturee`). L'envoi relève du service notification dans le modèle (V2). Veux-tu l'envoyer **dès la V1** ? Si oui, avec quel fournisseur (SMTP de ton hébergeur, Brevo, Resend…), et depuis quelle adresse ?
