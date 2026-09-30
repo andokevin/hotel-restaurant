@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import { lireId, lireIdentite, NonAutorise, type Identite } from "@hotel/commun";
 import {
   checkInSchema,
@@ -60,6 +61,10 @@ export const detailInterne = async (req: Request, res: Response) => {
 
 export const confirmerInterne = async (req: Request, res: Response) => {
   res.json(await service.confirmerReservation(lireId(req)));
+};
+
+export const statistiquesInterne = async (req: Request, res: Response) => {
+  res.json(await service.statistiquesDuJour(z.object({ jour: z.iso.date() }).parse(req.query).jour));
 };
 
 export const enCoursInterne = async (req: Request, res: Response) => {

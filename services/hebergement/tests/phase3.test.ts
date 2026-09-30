@@ -465,6 +465,21 @@ describe("Réservations d'un CLIENT", () => {
 });
 
 // ---------------------------------------------------------------------------
+describe("Statistiques pour la comptabilité (interne)", () => {
+  it("compte les nuitées VENDUES d'une nuit, par canal (pas les réservations en attente)", async () => {
+    const cat = await creerCategorie();
+    await creerChambre(cat.id, "101");
+    await creerChambre(cat.id, "102");
+    const payee = await reserver(cat.id, "2030-10-10", "2030-10-12", CLIENT_A);
+    await reserver(cat.id, "2030-10-10", "2030-10-12"); // en attente de paiement : pas vendue
+    await confirmer(payee.body.id);
+
+    const stats = await appel("get", "/interne/reservations/statistiques?jour=2030-10-11");
+    expect(stats.body).toEqual({ jour: "2030-10-11", nuiteesVendues: 1, repartitionCanaux: { SITE_WEB: 1 } });
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe("Email obligatoire (reçu et notifications)", () => {
   it("une réservation sans email est refusée ; l'email est normalisé", async () => {
     const cat = await creerCategorie();

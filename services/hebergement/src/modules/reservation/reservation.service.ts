@@ -78,6 +78,19 @@ export const reservationEnCours = async (chambreNumero: string) => {
   return r;
 };
 
+// Pour la comptabilité (appel interne, contrôle de 23 h) : nuitées vendues une nuit donnée
+// (réservations payées : confirmées, en cours ou terminées) et répartition par canal de vente.
+export async function statistiquesDuJour(jour: string) {
+  const vendues = { reservation: { statut: { in: ["CONFIRMEE" as const, "EN_COURS" as const, "TERMINEE" as const] } } };
+  const nuitees = await prisma.reservationNuitee.findMany({
+    where: { nuit: new Date(jour), ...vendues },
+    select: { reservation: { select: { canal: true } } },
+  });
+  const repartitionCanaux: Record<string, number> = {};
+  for (const n of nuitees) repartitionCanaux[n.reservation.canal] = (repartitionCanaux[n.reservation.canal] ?? 0) + 1;
+  return { jour, nuiteesVendues: nuitees.length, repartitionCanaux };
+}
+
 // ---------------------------------------------------------------------------
 // Création : le serveur choisit la chambre
 // ---------------------------------------------------------------------------

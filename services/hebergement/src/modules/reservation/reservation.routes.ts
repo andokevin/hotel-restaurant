@@ -18,5 +18,6 @@ routeurReservations.post("/:id/check-out", controller.checkOut);
 export const routeurReservationsInterne = Router();
 
 routeurReservationsInterne.get("/en-cours", controller.enCoursInterne); // ?chambre=204 (restaurant)
+routeurReservationsInterne.get("/statistiques", controller.statistiquesInterne); // ?jour=AAAA-MM-JJ (comptabilité)
 routeurReservationsInterne.get("/:id", controller.detailInterne);
 routeurReservationsInterne.post("/:id/confirmer", controller.confirmerInterne);
