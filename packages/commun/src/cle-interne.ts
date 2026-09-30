@@ -12,6 +12,17 @@ const empreinte = (s: string) => createHash("sha256").update(s).digest();
 export const clesEgales = (recue: string, attendue: string) =>
   timingSafeEqual(empreinte(recue), empreinte(attendue));
 
+// Empreinte à STOCKER pour un secret aléatoire (jeton de callback, notificationToken…) :
+// si la base fuit, les secrets en clair ne sont pas dedans.
+export const empreinteSha256 = (secret: string) => createHash("sha256").update(secret).digest("hex");
+
+// Le secret reçu correspond-il à l'empreinte stockée ? Comparaison en temps constant.
+export const correspondAEmpreinte = (recu: string, empreinteStockee: string) => {
+  const a = Buffer.from(empreinteSha256(recu), "hex");
+  const b = Buffer.from(empreinteStockee, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+
 // Protège les routes réservées aux appels entre services.
 export const exigerCleInterne = (cleAttendue: string): RequestHandler => (req, _res, next) => {
   const recue = req.get(EN_TETE_CLE_INTERNE);

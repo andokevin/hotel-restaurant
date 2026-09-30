@@ -9,3 +9,6 @@ export * from "./roles.js";
 export * from "./evenements.js";
 export * from "./bus.js";
 export type { Job, Worker } from "bullmq";
+export { UnrecoverableError } from "bullmq";
+export * from "./temps.js";
+export * from "./outbox.js";

@@ -66,6 +66,36 @@ export const CONTRATS = {
     chambreNumero: z.string(),
     articles: z.array(z.object({ code: z.string(), quantite: z.number().int().nonnegative() })),
   }),
+  "consommation.imputee": z.object({
+    commandeId: z.uuid(),
+    reference: z.string(),
+    reservationId: z.uuid(),
+    chambreNumero: z.string(),
+    lignes: z.array(z.object({ libelle: z.string(), quantite: z.number().int().positive(), prixUnitaire: z.number().int().positive() })),
+    montant: z.number().int().positive(),
+  }),
+  // Copie de la facture pour le comptable : un snapshot complet, lignes et origine de l'argent compris.
+  "facture.cloturee": z.object({
+    factureId: z.uuid(),
+    numero: z.string(),
+    type: z.enum(["SEJOUR", "RESTAURANT"]),
+    reservationId: z.uuid().nullable(),
+    commandeId: z.uuid().nullable(),
+    clientNom: z.string(),
+    montantTotal: z.number().int().nonnegative(),
+    montantPaye: z.number().int().nonnegative(),
+    emiseLe: horodatage,
+    clotureeLe: horodatage,
+    lignes: z.array(
+      z.object({
+        libelle: z.string(),
+        quantite: z.number().int().positive(),
+        prixUnitaire: z.number().int().nonnegative(),
+        montant: z.number().int().nonnegative(),
+        origine: z.enum(["HEBERGEMENT", "RESTAURANT", "LIVRAISON"]),
+      }),
+    ),
+  }),
 } as const;
 
 export type TypeEvenement = keyof typeof CONTRATS;
@@ -104,6 +134,8 @@ export const ABONNEMENTS: Record<TypeEvenement, readonly Consommateur[]> = {
   "sejour.commence": ["menage"],
   "sejour.termine": ["menage", "facturation"],
   "menage.termine": ["hebergement", "stock"],
+  "consommation.imputee": ["facturation"],
+  "facture.cloturee": ["comptabilite"],
 };
 
 // BullMQ interdit ":" dans les noms de file ; on utilise des points.
