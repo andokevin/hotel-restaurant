@@ -1,3 +1,5 @@
+import request from "supertest";
+import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 
 // Remet la base à zéro entre deux tests. CASCADE suit les clés étrangères.
@@ -25,3 +27,7 @@ export const demandeReservation = (chambreId: string, dateArrivee: string, dateD
   dateArrivee,
   dateDepart,
 });
+
+// Simule la gateway : la clé interne est toujours présente.
+export const appel = (methode: "get" | "post" | "patch", chemin: string) =>
+  request(app)[methode](chemin).set("x-cle-interne", process.env.CLE_INTERNE ?? "");

@@ -1,5 +1,4 @@
 import express from "express";
-import cors from "cors";
 import helmet from "helmet";
 import { creerGestionnaireErreurs, exigerCleInterne, journalRequetes } from "@hotel/commun";
 import { env } from "./config/env.js";
@@ -11,7 +10,6 @@ import { routeurReservations, routeurReservationsInterne } from "./modules/reser
 export const app = express();
 
 app.use(helmet());
-app.use(cors());
 app.use(express.json());
 app.use(journalRequetes(logger));
 
@@ -19,12 +17,17 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "hebergement" });
 });
 
+// Tout le reste ne répond qu'à la gateway ou aux autres services : eux seuls connaissent la clé interne.
+// Cela rend aussi fiables les en-têtes d'identité (x-utilisateur-*), que seule la gateway pose.
+app.use(exigerCleInterne(env.CLE_INTERNE));
+
 app.use("/categories", routeurCategories);
 app.use("/chambres", routeurChambres);
 app.use("/reservations", routeurReservations);
 
-// Routes réservées aux autres services (jamais exposées par la gateway)
-app.use("/interne/reservations", exigerCleInterne(env.CLE_INTERNE), routeurReservationsInterne);
+// Routes réservées aux autres services : absentes de la table des droits de la gateway,
+// donc injoignables depuis un navigateur.
+app.use("/interne/reservations", routeurReservationsInterne);
 
 app.use(
   creerGestionnaireErreurs({

@@ -1,8 +1,6 @@
-import request from "supertest";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
-import { creerChambre, demandeReservation, viderBase } from "./aide.js";
+import { appel, creerChambre, demandeReservation, viderBase } from "./aide.js";
 
 // Ces tests passent par l'API HTTP ET par la vraie contrainte PostgreSQL :
 // c'est la base qui refuse le chevauchement, pas le code TypeScript.
@@ -17,7 +15,7 @@ describe("Anti-surbooking (contrainte EXCLUDE reservation_sans_chevauchement)", 
   afterAll(() => prisma.$disconnect());
 
   const reserver = (arrivee: string, depart: string) =>
-    request(app).post("/reservations").send(demandeReservation(chambreId, arrivee, depart));
+    appel("post", "/reservations").send(demandeReservation(chambreId, arrivee, depart));
 
   it("refuse une réservation qui chevauche une réservation active (409)", async () => {
     expect((await reserver("2030-10-10", "2030-10-13")).status).toBe(201);
@@ -51,7 +49,7 @@ describe("Anti-surbooking (contrainte EXCLUDE reservation_sans_chevauchement)", 
     const autre = await creerChambre("102");
     expect((await reserver("2030-10-10", "2030-10-13")).status).toBe(201);
 
-    const res = await request(app).post("/reservations").send(demandeReservation(autre.id, "2030-10-10", "2030-10-13"));
+    const res = await appel("post", "/reservations").send(demandeReservation(autre.id, "2030-10-10", "2030-10-13"));
     expect(res.status).toBe(201);
   });
 });
