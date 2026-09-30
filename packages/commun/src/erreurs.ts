@@ -14,6 +14,9 @@ export class AppError extends Error {
 export const NonAutorise = (message = "Authentification requise") =>
   new AppError(401, "NON_AUTORISE", message);
 
+export const Interdit = (message = "Accès refusé pour ce rôle") =>
+  new AppError(403, "INTERDIT", message);
+
 export const NotFound = (quoi: string) => new AppError(404, "NOT_FOUND", `${quoi} introuvable`);
 
 export const Conflit = (message: string) => new AppError(409, "CONFLICT", message);
