@@ -6,14 +6,17 @@ import { demarrerServiceEcho, ID_UTILISATEUR, jeton } from "./aide.js";
 // Les faux services doivent tourner AVANT de charger la gateway : env.ts lit leurs adresses à l'import.
 const auth = await demarrerServiceEcho("auth");
 const hebergement = await demarrerServiceEcho("hebergement");
+const facturation = await demarrerServiceEcho("facturation");
 process.env.AUTH_URL = auth.url;
 process.env.HEBERGEMENT_URL = hebergement.url;
+process.env.FACTURATION_URL = facturation.url;
 const { app } = await import("../src/app.js");
 
 const fermer = (s: Server) => new Promise((ok) => s.close(ok));
 afterAll(async () => {
   await fermer(auth.serveur);
   await fermer(hebergement.serveur);
+  await fermer(facturation.serveur);
 });
 
 const avecJeton = async (req: request.Test, role: Parameters<typeof jeton>[0]["role"]) =>
@@ -122,6 +125,33 @@ describe("Réservations : ordre des règles", () => {
       expect((await avecJeton(request(app).post(`/api/reservations/${id}/${action}`), "CLIENT")).status).toBe(403);
       expect((await avecJeton(request(app).post(`/api/reservations/${id}/${action}`), "RECEPTIONNISTE")).status).toBe(200);
     }
+  });
+});
+
+describe("Facturation", () => {
+  it("la notification Papi passe SANS jeton, avec sa query string intacte", async () => {
+    const res = await request(app)
+      .post("/api/paiements/notification?paiement=abc&jeton=secret")
+      .send({ paymentStatus: "SUCCESS" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      service: "facturation",
+      chemin: "/paiements/notification?paiement=abc&jeton=secret",
+      corps: { paymentStatus: "SUCCESS" },
+      cleInterne: process.env.CLE_INTERNE, // la gateway ajoute la clé : facturation l'accepte
+      role: null,
+    });
+  });
+
+  it("encaisser : réception ou restaurant, pas un client ; clôturer : réception", async () => {
+    const id = "7b1f3c2a-9d4e-4f5a-8b6c-1d2e3f4a5b6c";
+    expect((await avecJeton(request(app).post(`/api/factures/${id}/encaissements`), "CLIENT")).status).toBe(403);
+    expect((await avecJeton(request(app).post(`/api/factures/${id}/encaissements`), "RESTAURANT")).status).toBe(200);
+    expect((await avecJeton(request(app).post(`/api/factures/${id}/cloturer`), "RESTAURANT")).status).toBe(403);
+    expect((await avecJeton(request(app).get("/api/factures/mes-factures"), "CLIENT")).status).toBe(200);
+    expect((await avecJeton(request(app).get("/api/factures"), "CLIENT")).status).toBe(403);
+    expect((await avecJeton(request(app).get("/api/factures"), "COMPTABLE")).status).toBe(200);
   });
 });
 

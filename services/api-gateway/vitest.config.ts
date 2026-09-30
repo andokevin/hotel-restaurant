@@ -17,6 +17,7 @@ export default defineConfig({
       // Remplacées par les adresses des faux services démarrés dans les tests
       AUTH_URL: "http://127.0.0.1:1",
       HEBERGEMENT_URL: "http://127.0.0.1:1",
+      FACTURATION_URL: "http://127.0.0.1:1",
     },
   },
 });

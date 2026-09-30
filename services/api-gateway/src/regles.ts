@@ -1,6 +1,6 @@
 import type { Role } from "@hotel/commun";
 
-export type NomService = "auth" | "hebergement";
+export type NomService = "auth" | "hebergement" | "facturation";
 
 // PUBLIC : sans compte. CONNECTE : n'importe quel compte. Sinon : liste des rôles autorisés.
 export type Acces = "PUBLIC" | "CONNECTE" | readonly Role[];
@@ -13,6 +13,8 @@ export type Regle = {
 };
 
 const RECEPTION = ["RECEPTIONNISTE", "ADMIN"] as const;
+// Ceux qui voient les factures : caisse de la réception, du restaurant, et le comptable
+const PERSONNEL_CAISSE = ["RECEPTIONNISTE", "RESTAURANT", "COMPTABLE", "ADMIN"] as const;
 
 // LA table des droits de toute l'application.
 // Refus par défaut : une route absente de cette liste répond 404, même si le service la connaît
@@ -47,4 +49,17 @@ export const REGLES: readonly Regle[] = [
   { methode: "post", chemin: "/reservations/:id/annuler", service: "hebergement", acces: RECEPTION },
   { methode: "post", chemin: "/reservations/:id/check-in", service: "hebergement", acces: RECEPTION },
   { methode: "post", chemin: "/reservations/:id/check-out", service: "hebergement", acces: RECEPTION },
+
+  // --- facturation ---
+  // Demander un lien Papi : le client pour SA réservation, la réception pour un client au comptoir.
+  { methode: "post", chemin: "/paiements", service: "facturation", acces: ["CLIENT", ...RECEPTION] },
+  // Notification serveur à serveur de Papi : pas de JWT possible. Elle est authentifiée par le
+  // jeton secret de son URL (vérifié par facturation) puis par le notificationToken (worker).
+  { methode: "post", chemin: "/paiements/notification", service: "facturation", acces: "PUBLIC" },
+  { methode: "get", chemin: "/paiements/:id", service: "facturation", acces: ["CLIENT", ...PERSONNEL_CAISSE] },
+  { methode: "get", chemin: "/factures", service: "facturation", acces: PERSONNEL_CAISSE },
+  { methode: "get", chemin: "/factures/mes-factures", service: "facturation", acces: ["CLIENT"] }, // avant ":id"
+  { methode: "get", chemin: "/factures/:id", service: "facturation", acces: ["CLIENT", ...PERSONNEL_CAISSE] },
+  { methode: "post", chemin: "/factures/:id/encaissements", service: "facturation", acces: ["RECEPTIONNISTE", "RESTAURANT", "ADMIN"] },
+  { methode: "post", chemin: "/factures/:id/cloturer", service: "facturation", acces: RECEPTION },
 ];

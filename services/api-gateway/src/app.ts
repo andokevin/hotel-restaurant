@@ -118,6 +118,7 @@ const proxyVers = (cible: string) =>
 const proxies: Record<NomService, RequestHandler> = {
   auth: proxyVers(env.AUTH_URL),
   hebergement: proxyVers(env.HEBERGEMENT_URL),
+  facturation: proxyVers(env.FACTURATION_URL),
 };
 
 app.use("/api", (req, res, next) => {

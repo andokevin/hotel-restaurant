@@ -11,6 +11,7 @@ const schema = z.object({
   // Adresses des services (réseau interne Docker en production)
   AUTH_URL: z.url(),
   HEBERGEMENT_URL: z.url(),
+  FACTURATION_URL: z.url(),
   // Tentatives de connexion par IP et par fenêtre de 15 minutes
   LIMITE_CONNEXIONS: z.coerce.number().int().default(10),
 });
