@@ -27,7 +27,7 @@ echo "jeton : ${ADMIN:0:25}…"
 echo "== 3. L'ADMIN crée un compte RECEPTIONNISTE"
 TEL_RECEP=$(TEL)
 curl -s -X POST $API/auth/utilisateurs -H "$JSON" -H "Authorization: Bearer $ADMIN" \
-  -d "{\"nom\":\"Soa Rakoto\",\"telephone\":\"$TEL_RECEP\",\"motDePasse\":\"$MDP_RECEP\",\"role\":\"RECEPTIONNISTE\"}"; echo
+  -d "{\"nom\":\"Soa Rakoto\",\"telephone\":\"$TEL_RECEP\",\"email\":\"recep-$TEL_RECEP@hotel.mg\",\"motDePasse\":\"$MDP_RECEP\",\"role\":\"RECEPTIONNISTE\"}"; echo
 
 echo "== 4. L'ADMIN crée une catégorie et une chambre"
 CAT=$(curl -s -X POST $API/categories -H "$JSON" -H "Authorization: Bearer $ADMIN" \
@@ -56,7 +56,7 @@ echo "== 7. La réceptionniste remplit toute la catégorie, puis tente une rése
 N=$(curl -s $API/chambres -H "Authorization: Bearer $ADMIN" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).filter(c=>c.categorieId===process.argv[1]&&!c.horsService).length))' "$CAT")
 ARRIVEE=$(node -e 'const d=new Date(Date.UTC(2031,0,1)+Math.floor(Math.random()*1500)*864e5);console.log(d.toISOString().slice(0,10))')
 DEPART=$(node -e 'const d=new Date(process.argv[1]);d.setUTCDate(d.getUTCDate()+3);console.log(d.toISOString().slice(0,10))' "$ARRIVEE")
-R="{\"categorieId\":\"$CAT\",\"clientNom\":\"Rabe Hery\",\"clientTelephone\":\"0331234567\",\"pieceIdentiteType\":\"CIN\",\"pieceIdentiteNumero\":\"101201304405\",\"dateArrivee\":\"$ARRIVEE\",\"dateDepart\":\"$DEPART\"}"
+R="{\"categorieId\":\"$CAT\",\"clientNom\":\"Rabe Hery\",\"clientTelephone\":\"0331234567\",\"clientEmail\":\"rabe.hery@mail.mg\",\"pieceIdentiteType\":\"CIN\",\"pieceIdentiteNumero\":\"101201304405\",\"dateArrivee\":\"$ARRIVEE\",\"dateDepart\":\"$DEPART\"}"
 for i in $(seq 1 "$N"); do
   curl -s -o /dev/null -w "réservation $i/$N ($ARRIVEE → $DEPART) → %{http_code}\n" -X POST $API/reservations -H "$JSON" -H "Authorization: Bearer $RECEP" -d "$R"
 done

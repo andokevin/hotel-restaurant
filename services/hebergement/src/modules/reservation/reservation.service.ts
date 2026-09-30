@@ -174,6 +174,7 @@ export async function creerReservation(data: CreerReservationDTO, identite: Iden
           reference: r.reference,
           clientId: r.clientId,
           clientNom: r.clientNom,
+          clientTelephone: r.clientTelephone,
           clientEmail: r.clientEmail,
           langue: r.langue,
           categorieCode: categorie.code,

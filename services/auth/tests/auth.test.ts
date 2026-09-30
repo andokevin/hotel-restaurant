@@ -44,10 +44,10 @@ describe("Inscription", () => {
     expect(enBase.motDePasseHash).not.toContain(MOT_DE_PASSE);
   });
 
-  it("l'email est facultatif (identifiant principal : le téléphone)", async () => {
+  it("l'email est obligatoire (reçus et notifications)", async () => {
     const res = await appel("post", "/auth/inscription").send({ nom: "Hanta", telephone: "0331234567", motDePasse: MOT_DE_PASSE });
-    expect(res.status).toBe(201);
-    expect(res.body.email).toBeNull();
+    expect(res.status).toBe(400);
+    expect(res.body.details[0].champ).toBe("email");
   });
 
   it("refuse un numéro déjà utilisé, même écrit autrement (409)", async () => {
@@ -55,6 +55,7 @@ describe("Inscription", () => {
     const doublon = await appel("post", "/auth/inscription").send({
       nom: "Autre",
       telephone: "034 12 345 67",
+      email: "autre@mail.mg",
       motDePasse: MOT_DE_PASSE,
     });
     expect(doublon.status).toBe(409);
@@ -72,10 +73,20 @@ describe("Inscription", () => {
     expect(email.status).toBe(409);
     expect(email.body.code).toBe("EMAIL_DEJA_UTILISE");
 
-    const numero = await appel("post", "/auth/inscription").send({ nom: "X", telephone: "0201234567", motDePasse: MOT_DE_PASSE });
+    const numero = await appel("post", "/auth/inscription").send({
+      nom: "X",
+      telephone: "0201234567",
+      email: "x@mail.mg",
+      motDePasse: MOT_DE_PASSE,
+    });
     expect(numero.status).toBe(400);
 
-    const court = await appel("post", "/auth/inscription").send({ nom: "Court", telephone: "0381234567", motDePasse: "123" });
+    const court = await appel("post", "/auth/inscription").send({
+      nom: "Court",
+      telephone: "0381234567",
+      email: "court@mail.mg",
+      motDePasse: "123",
+    });
     expect(court.status).toBe(400);
   });
 });
@@ -184,7 +195,7 @@ describe("Profil et gestion des comptes", () => {
   it("seul un ADMIN gère les comptes (vérifié aussi dans le service)", async () => {
     const client = await creerCompte("0341234567");
     const admin = await creerCompte("0340000001", "ADMIN");
-    const nouveau = { nom: "Hanta", telephone: "0381234567", motDePasse: MOT_DE_PASSE, role: "FEMME_MENAGE" };
+    const nouveau = { nom: "Hanta", telephone: "0381234567", email: "hanta@hotel.mg", motDePasse: MOT_DE_PASSE, role: "FEMME_MENAGE" };
 
     expect((await appel("post", "/auth/utilisateurs", { id: client.id, role: "CLIENT" }).send(nouveau)).status).toBe(403);
 

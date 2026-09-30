@@ -108,7 +108,7 @@ model Reservation {
   clientId             String?           @map("client_id") @db.Uuid
   clientNom            String            @map("client_nom")
   clientTelephone      String            @map("client_telephone")
-  clientEmail          String?           @map("client_email")
+  clientEmail          String            @map("client_email") // obligatoire : le reçu part par email
   pieceIdentiteType    String            @map("piece_identite_type")
   pieceIdentiteNumero  String            @map("piece_identite_numero")
   dateArrivee          DateTime          @map("date_arrivee") @db.Date

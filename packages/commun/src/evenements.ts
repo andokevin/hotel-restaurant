@@ -17,7 +17,8 @@ export const CONTRATS = {
     reference: z.string(),
     clientId: z.uuid().nullable(),
     clientNom: z.string(),
-    clientEmail: z.string().nullable(),
+    clientTelephone: z.string(),
+    clientEmail: z.email(),
     langue: z.enum(["FR", "MG", "EN"]),
     categorieCode: z.string(),
     chambreNumero: z.string(),
@@ -33,7 +34,7 @@ export const CONTRATS = {
     clientId: z.uuid().nullable(),
     clientNom: z.string(),
     clientTelephone: z.string(),
-    clientEmail: z.string().nullable(),
+    clientEmail: z.email(),
     langue: z.enum(["FR", "MG", "EN"]),
   }),
   "paiement.recu": z.object({

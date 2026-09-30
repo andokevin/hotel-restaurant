@@ -449,3 +449,21 @@ describe("Réservations d'un CLIENT", () => {
     expect((await appel("get", `/reservations/${a.body.id}`, RECEPTION)).status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe("Email obligatoire (reçu et notifications)", () => {
+  it("une réservation sans email est refusée ; l'email est normalisé", async () => {
+    const cat = await creerCategorie();
+    await creerChambre(cat.id, "101");
+    const { clientEmail: _sans, ...sansEmail } = demandeReservation(cat.id, "2030-10-10", "2030-10-12");
+
+    const refus = await appel("post", "/reservations", RECEPTION).send(sansEmail);
+    expect(refus.status).toBe(400);
+    expect(refus.body.details[0].champ).toBe("clientEmail");
+
+    const ok = await appel("post", "/reservations", RECEPTION).send({ ...sansEmail, clientEmail: " Rakoto@Mail.MG " });
+    expect(ok.body.clientEmail).toBe("rakoto@mail.mg");
+    const [evt] = await evenementsOutbox("reservation.creee");
+    expect(evt?.payload).toMatchObject({ clientEmail: "rakoto@mail.mg", clientTelephone: "0341234567" });
+  });
+});

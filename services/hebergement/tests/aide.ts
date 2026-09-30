@@ -50,6 +50,7 @@ export const demandeReservation = (categorieId: string, dateArrivee: string, dat
   categorieId,
   clientNom: "Rakoto Jean",
   clientTelephone: "0341234567",
+  clientEmail: "rakoto@mail.mg",
   pieceIdentiteType: "CIN",
   pieceIdentiteNumero: "101201304405",
   dateArrivee,

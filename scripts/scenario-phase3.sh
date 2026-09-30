@@ -32,15 +32,15 @@ done
 MDP="Mdp-$SUFFIXE-2026"
 TEL_RECEP=$(TEL); TEL_CLIENT=$(TEL)
 curl -s -o /dev/null -X POST $API/auth/utilisateurs -H "$JSON" -H "Authorization: Bearer $ADMIN" \
-  -d "{\"nom\":\"Soa\",\"telephone\":\"$TEL_RECEP\",\"motDePasse\":\"$MDP\",\"role\":\"RECEPTIONNISTE\"}"
+  -d "{\"nom\":\"Soa\",\"telephone\":\"$TEL_RECEP\",\"email\":\"recep-$SUFFIXE@hotel.mg\",\"motDePasse\":\"$MDP\",\"role\":\"RECEPTIONNISTE\"}"
 RECEP=$(curl -s -X POST $API/auth/connexion -H "$JSON" -d "{\"identifiant\":\"$TEL_RECEP\",\"motDePasse\":\"$MDP\"}" | champ jetonAcces)
-curl -s -o /dev/null -X POST $API/auth/inscription -H "$JSON" -d "{\"nom\":\"Rabe Hery\",\"telephone\":\"$TEL_CLIENT\",\"motDePasse\":\"$MDP\"}"
+curl -s -o /dev/null -X POST $API/auth/inscription -H "$JSON" -d "{\"nom\":\"Rabe Hery\",\"telephone\":\"$TEL_CLIENT\",\"email\":\"client-$SUFFIXE@mail.mg\",\"motDePasse\":\"$MDP\"}"
 CLIENT=$(curl -s -X POST $API/auth/connexion -H "$JSON" -d "{\"identifiant\":\"$TEL_CLIENT\",\"motDePasse\":\"$MDP\"}" | champ jetonAcces)
 echo "catégorie SUITE_SENIOR : $CAT"
 
 echo "== 1. Le CLIENT réserve la CATÉGORIE (le serveur choisit la chambre), avec une Idempotency-Key"
 CLE=$(node -e 'console.log(crypto.randomUUID())')
-DEMANDE="{\"categorieId\":\"$CAT\",\"clientNom\":\"Rabe Hery\",\"clientTelephone\":\"0331234567\",\"pieceIdentiteType\":\"CIN\",\"pieceIdentiteNumero\":\"101201304405\",\"dateArrivee\":\"$(jour 0)\",\"dateDepart\":\"$(jour 2)\"}"
+DEMANDE="{\"categorieId\":\"$CAT\",\"clientNom\":\"Rabe Hery\",\"clientTelephone\":\"0331234567\",\"clientEmail\":\"client-$SUFFIXE@mail.mg\",\"pieceIdentiteType\":\"CIN\",\"pieceIdentiteNumero\":\"101201304405\",\"dateArrivee\":\"$(jour 0)\",\"dateDepart\":\"$(jour 2)\"}"
 R1=$(curl -s -X POST $API/reservations -H "$JSON" -H "Authorization: Bearer $CLIENT" -H "Idempotency-Key: $CLE" -d "$DEMANDE")
 ID=$(echo "$R1" | champ id)
 echo "réservation $(echo "$R1" | champ reference), chambre choisie : $(echo "$R1" | champ chambre | champ numero), statut $(echo "$R1" | champ statut), canal $(echo "$R1" | champ canal)"

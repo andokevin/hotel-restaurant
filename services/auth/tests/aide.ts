@@ -14,7 +14,7 @@ export const appel = (methode: "get" | "post" | "patch", chemin: string, identit
 
 export const MOT_DE_PASSE = "Tsara-Be-2026!";
 
-export const creerCompte = async (telephone: string, role: Role = "CLIENT", actif = true, email?: string) =>
+export const creerCompte = async (telephone: string, role: Role = "CLIENT", actif = true, email = `${telephone}@test.mg`) =>
   prisma.utilisateur.create({
     data: { telephone, email, nom: "Rasoa Voahangy", role, actif, motDePasseHash: await hacherMotDePasse(MOT_DE_PASSE) },
   });

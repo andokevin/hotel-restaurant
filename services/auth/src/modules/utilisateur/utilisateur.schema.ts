@@ -25,7 +25,8 @@ const langue = z.enum(["FR", "MG", "EN"]).default("FR");
 
 // Inscription publique : le rôle n'est PAS dans le schéma, il sera forcé à CLIENT.
 // Un champ "role": "ADMIN" envoyé par le navigateur est simplement ignoré.
-export const inscriptionSchema = z.object({ nom, telephone, email: email.optional(), motDePasse, langue });
+// Téléphone : identifiant de connexion et paiement mobile. Email : obligatoire, reçus et notifications.
+export const inscriptionSchema = z.object({ nom, telephone, email, motDePasse, langue });
 
 // Création d'un compte par un ADMIN (personnel de l'hôtel)
 export const creationUtilisateurSchema = inscriptionSchema.extend({ role: z.enum(ROLES) });

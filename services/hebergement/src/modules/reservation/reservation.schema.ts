@@ -7,7 +7,8 @@ export const creerReservationSchema = z
     categorieId: z.uuid(),
     clientNom: z.string().trim().min(2).max(100),
     clientTelephone: z.string().regex(/^0(32|33|34|37|38)\d{7}$/, "Numéro malgache invalide"),
-    clientEmail: z.email().optional(),
+    // Obligatoire : le reçu et la confirmation partent par email
+    clientEmail: z.string().trim().toLowerCase().pipe(z.email("Email invalide")),
     pieceIdentiteType: z.enum(["CIN", "PASSEPORT"]),
     pieceIdentiteNumero: z.string().trim().min(4).max(30),
     dateArrivee: z.iso.date(),

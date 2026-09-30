@@ -10,7 +10,7 @@ import { email, telephone } from "../modules/utilisateur/utilisateur.schema.js";
 const saisie = z
   .object({
     ADMIN_TELEPHONE: telephone,
-    ADMIN_EMAIL: email.optional(),
+    ADMIN_EMAIL: email,
     ADMIN_NOM: z.string().min(2).default("Administrateur"),
     ADMIN_MOT_DE_PASSE: z.string().min(10),
   })
@@ -29,6 +29,6 @@ if (existant) {
       role: "ADMIN",
     },
   });
-  console.log(`Compte ADMIN créé : ${admin.telephone}${admin.email ? ` (${admin.email})` : ""}`);
+  console.log(`Compte ADMIN créé : ${admin.telephone} (${admin.email})`);
 }
 await prisma.$disconnect();

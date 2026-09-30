@@ -55,6 +55,7 @@ describe("Anti-surbooking", () => {
         chambreId: chambre.id,
         clientNom: "Intrus",
         clientTelephone: "0340000000",
+        clientEmail: "intrus@mail.mg",
         pieceIdentiteType: "CIN",
         pieceIdentiteNumero: "0000",
         dateArrivee: new Date("2030-10-11"),
