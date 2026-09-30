@@ -6,8 +6,12 @@
   "main": "index.js",
   "scripts": {
     "build:commun": "pnpm --filter @hotel/commun build",
+    "dev": "pnpm -r --parallel --if-present run dev",
+    "dev:gateway": "pnpm --filter @hotel/api-gateway dev",
+    "dev:auth": "pnpm --filter @hotel/auth dev",
     "dev:hebergement": "pnpm --filter @hotel/hebergement dev",
-    "test": "pnpm -r --if-present run test"
+    "test": "pnpm -r --if-present run test",
+    "typecheck": "pnpm -r --if-present run typecheck"
   },
   "keywords": [],
   "author": "",
