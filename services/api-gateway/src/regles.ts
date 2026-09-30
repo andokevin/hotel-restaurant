@@ -88,4 +88,11 @@ export const REGLES: readonly Regle[] = [
   { methode: "post", chemin: "/commandes/:id/statut", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
   { methode: "post", chemin: "/commandes/:id/imputer", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
   { methode: "post", chemin: "/commandes/:id/facturer", service: "restaurant", acces: ["RESTAURANT", "ADMIN"] },
+
+  // --- comptabilite ---
+  { methode: "get", chemin: "/comptabilite/tableaux", service: "comptabilite", acces: ["COMPTABLE", "ADMIN"] },
+  { methode: "post", chemin: "/comptabilite/tableaux/generer", service: "comptabilite", acces: ["COMPTABLE", "ADMIN"] },
+  { methode: "get", chemin: "/comptabilite/reversements", service: "comptabilite", acces: ["COMPTABLE", "ADMIN"] },
+  { methode: "post", chemin: "/comptabilite/reversements/:id/effectuer", service: "comptabilite", acces: ["COMPTABLE", "ADMIN"] },
+  { methode: "get", chemin: "/comptabilite/factures", service: "comptabilite", acces: ["COMPTABLE", "ADMIN"] },
 ];
