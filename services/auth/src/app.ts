@@ -1,7 +1,8 @@
 import express from "express";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import { creerGestionnaireErreurs, exigerCleInterne, journalRequetes } from "@hotel/commun";
+import { creerGestionnaireErreurs, exigerCleInterne, journalRequetes, lireId, NotFound } from "@hotel/commun";
+import { prisma } from "./db.js";
 import { env } from "./config/env.js";
 import { logger } from "./logger.js";
 import { routeurAuth } from "./routes.js";
@@ -21,6 +22,16 @@ app.get("/health", (_req, res) => {
 app.use(exigerCleInterne(env.CLE_INTERNE));
 
 app.use("/auth", routeurAuth);
+
+// Appels entre services (jamais exposés par la gateway) : le nom d'un employé, pour un snapshot.
+app.get("/interne/utilisateurs/:id", async (req, res) => {
+  const u = await prisma.utilisateur.findUnique({
+    where: { id: lireId(req) },
+    select: { id: true, nom: true, role: true, actif: true },
+  });
+  if (!u) throw NotFound("Utilisateur");
+  res.json(u);
+});
 
 app.use(
   creerGestionnaireErreurs({

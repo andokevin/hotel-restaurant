@@ -62,9 +62,20 @@ export const CONTRATS = {
   }),
   "menage.termine": z.object({
     tacheId: z.uuid(),
+    type: z.enum(["QUOTIDIEN", "DEPART"]),
+    reservationId: z.uuid(),
     chambreId: z.uuid(),
     chambreNumero: z.string(),
+    // Articles RÉELLEMENT remplacés, déclarés par la femme de ménage (pas déduits des nuitées :
+    // c'est ce qui permet au comptable de détecter un écart)
     articles: z.array(z.object({ code: z.string(), quantite: z.number().int().nonnegative() })),
+    termineLe: horodatage,
+  }),
+  "stock.seuil_atteint": z.object({
+    articleId: z.uuid(),
+    code: z.string(),
+    quantite: z.number().int().nonnegative(),
+    seuilAlerte: z.number().int().nonnegative(),
   }),
   "consommation.imputee": z.object({
     commandeId: z.uuid(),
@@ -136,6 +147,7 @@ export const ABONNEMENTS: Record<TypeEvenement, readonly Consommateur[]> = {
   "menage.termine": ["hebergement", "stock"],
   "consommation.imputee": ["facturation"],
   "facture.cloturee": ["comptabilite"],
+  "stock.seuil_atteint": [], // notification (V2)
 };
 
 // BullMQ interdit ":" dans les noms de file ; on utilise des points.

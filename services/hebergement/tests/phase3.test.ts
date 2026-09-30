@@ -426,9 +426,12 @@ describe("Consommateur menage.termine", () => {
     const chambre = await creerChambre(cat.id, "101", "SALE");
     const evt = enveloppe("menage.termine", {
       tacheId: randomUUID(),
+      type: "DEPART",
+      reservationId: randomUUID(),
       chambreId: chambre.id,
       chambreNumero: "101",
       articles: [{ code: "GEL_DOUCHE", quantite: 2 }],
+      termineLe: new Date().toISOString(),
     });
 
     await traiterMenageTermine(evt);
