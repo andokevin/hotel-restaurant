@@ -20,6 +20,9 @@ export default defineConfig({
       DATABASE_URL: url.toString(),
       NODE_ENV: "test",
       CLE_INTERNE: "cle-interne-de-test-0123456789",
+      REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6381",
+      // Préfixe à part : les tests ne voient jamais les vraies files de dev
+      BULLMQ_PREFIXE: "hotel-test",
     },
     globalSetup: ["./tests/preparation-globale.ts"],
     // Tous les fichiers partagent la même base : on les exécute l'un après l'autre.

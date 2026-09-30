@@ -1,16 +1,23 @@
 import request from "supertest";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app.js";
+import { bus } from "../src/bus.js";
 import { prisma } from "../src/db.js";
-import { appel, creerChambre, demandeReservation, viderBase } from "./aide.js";
+import { appel, creerCategorie, creerChambre, demandeReservation, RECEPTION, reserver, viderBase, viderFiles } from "./aide.js";
 
 // Un test par bug de la section 1.3 du guide : s'il réapparaît, le test casse.
 describe("Corrections de la phase 1", () => {
-  beforeEach(() => viderBase());
-  afterAll(() => prisma.$disconnect());
+  beforeEach(async () => {
+    await viderBase();
+    await viderFiles();
+  });
+  afterAll(async () => {
+    await bus.fermer();
+    await prisma.$disconnect();
+  });
 
   it("B2 — GET /categories renvoie bien la liste", async () => {
-    await creerChambre();
+    await creerCategorie();
     const res = await appel("get", "/categories");
 
     expect(res.status).toBe(200);
@@ -18,13 +25,12 @@ describe("Corrections de la phase 1", () => {
     expect(res.body[0].code).toBe("STANDARD");
   });
 
-  it("B3 — la confirmation n'est plus accessible publiquement", async () => {
-    const chambre = await creerChambre();
-    const r = await appel("post", "/reservations").send(demandeReservation(chambre.id, "2030-10-10", "2030-10-12"));
+  it("B3 — la confirmation n'est pas accessible publiquement", async () => {
+    const cat = await creerCategorie();
+    await creerChambre(cat.id, "101");
+    const r = await reserver(cat.id, "2030-10-10", "2030-10-12");
 
-    // L'ancienne route publique n'existe plus
     expect((await appel("post", `/reservations/${r.body.id}/confirmer`)).status).toBe(404);
-    // Sans la clé interne (ou avec une fausse), le service refuse tout
     expect((await request(app).post(`/interne/reservations/${r.body.id}/confirmer`)).status).toBe(401);
     expect(
       (await request(app).post(`/interne/reservations/${r.body.id}/confirmer`).set("x-cle-interne", "mauvaise-cle")).status,
@@ -41,10 +47,10 @@ describe("Corrections de la phase 1", () => {
   });
 
   it("B3 — confirmer deux fois est sans effet (idempotence)", async () => {
-    const chambre = await creerChambre();
-    const r = await appel("post", "/reservations").send(demandeReservation(chambre.id, "2030-10-10", "2030-10-12"));
-    const confirmer = () =>
-      appel("post", `/interne/reservations/${r.body.id}/confirmer`).set("x-cle-interne", process.env.CLE_INTERNE ?? "");
+    const cat = await creerCategorie();
+    await creerChambre(cat.id, "101");
+    const r = await reserver(cat.id, "2030-10-10", "2030-10-12");
+    const confirmer = () => appel("post", `/interne/reservations/${r.body.id}/confirmer`);
 
     await confirmer();
     const second = await confirmer();
@@ -66,13 +72,11 @@ describe("Corrections de la phase 1", () => {
   });
 
   it("I4 — les références sont uniques même en rafale", async () => {
+    const cat = await creerCategorie();
     // Chambres créées l'une après l'autre : seule la création des réservations est concurrente.
-    const chambres = [];
-    for (let n = 1; n <= 20; n++) chambres.push(await creerChambre(String(200 + n)));
+    for (let n = 1; n <= 20; n++) await creerChambre(cat.id, String(200 + n));
 
-    const reponses = await Promise.all(
-      chambres.map((c) => appel("post", "/reservations").send(demandeReservation(c.id, "2030-10-10", "2030-10-12"))),
-    );
+    const reponses = await Promise.all(Array.from({ length: 20 }, () => reserver(cat.id, "2030-10-10", "2030-10-12")));
 
     const references = reponses.map((r) => r.body.reference as string);
     expect(reponses.every((r) => r.status === 201)).toBe(true);
@@ -81,9 +85,12 @@ describe("Corrections de la phase 1", () => {
   });
 
   it("le montant est calculé par le serveur (2 nuits × 80 000 Ar)", async () => {
-    const chambre = await creerChambre();
-    const res = await appel("post", "/reservations")
-      .send({ ...demandeReservation(chambre.id, "2030-10-10", "2030-10-12"), montantTotal: 1 });
+    const cat = await creerCategorie();
+    await creerChambre(cat.id, "101");
+    const res = await appel("post", "/reservations", RECEPTION).send({
+      ...demandeReservation(cat.id, "2030-10-10", "2030-10-12"),
+      montantTotal: 1,
+    });
 
     expect(res.body.montantTotal).toBe(160_000);
   });
