@@ -863,3 +863,237 @@ rafraichir → 200 · deconnexion → 204 · rafraichir après → 401
 
 **Que se passe-t-il si quelqu'un appelle directement hebergement sur le port 3001 ?**
 > 401 : sans la clé interne, le service ne répond qu'à `/health`. Et en production, ce port n'est de toute façon pas publié hors du réseau Docker.
+
+---
+
+## Journal — Phase 3 : hébergement complet
+
+### Avant de commencer : les deux vérifications demandées
+
+**1. Pas d'énumération des comptes à la connexion : confirmé.** Email inconnu et mauvais mot de passe donnent le même code (401), le même corps (`IDENTIFIANTS_INVALIDES`, « Email ou mot de passe incorrect ») et **la même durée**, grâce au hachage factice. C'est couvert par le test « même réponse pour un email inconnu et un mauvais mot de passe ».
+⚠️ **Une fuite reste possible par l'inscription** : `POST /auth/inscription` avec un email existant répond `409 EMAIL_DEJA_UTILISE`. La parade classique (répondre toujours « vérifiez votre boîte mail » et envoyer un email) demande le service notification, prévu en V2. **Tâche ajoutée** en « Limites connues ».
+
+**2. Limitation des tentatives : elle existait, avec un défaut, corrigé dans cette phase.** La gateway autorise 10 tentatives par IP et par 15 minutes (`express-rate-limit`, 429 `TROP_DE_TENTATIVES`). Mais elle comptait **aussi les connexions réussies** : tout le personnel de l'hôtel sortant par la même IP publique, dix connexions le matin bloquaient la onzième. Ajout de `skipSuccessfulRequests: true` et d'un test.
+
+**Version Redis, sans la coder** (hors périmètre tant qu'il n'y a qu'une gateway) : aujourd'hui, les compteurs sont **en mémoire**. Ils repartent à zéro au redémarrage, et deux instances de gateway compteraient chacune de leur côté. L'option la plus simple est de brancher le même Redis que BullMQ comme stockage des compteurs :
+
+```ts
+import { RedisStore } from "rate-limit-redis";            // paquet rate-limit-redis
+const redis = creerClientRedis(env.REDIS_URL);
+const limiteConnexion = rateLimit({
+  // …mêmes options qu'aujourd'hui…
+  store: new RedisStore({ sendCommand: (commande: string, ...args: string[]) => redis.call(commande, ...args) }),
+});
+```
+
+Chaque tentative fait alors un `INCR` sur une clé `rl:<ip>` qui expire au bout de 15 minutes : c'est atomique et partagé par toutes les instances. On y ajouterait ensuite une **seconde limite par compte** (clé = email), contre une attaque répartie sur beaucoup d'IP.
+
+### Écarts entre `modele-donnees.md` et le guide (couche V1)
+
+Le modèle de données (collé dans la conversation le 30/09) **fait foi**. `docs/modele-donnees.md` n'est pas encore dans le dépôt.
+
+| # | Sujet | Modèle | Guide / code avant | Ce qui a été fait |
+|---|---|---|---|---|
+| 1 | Transport | RabbitMQ | BullMQ | **BullMQ** (décision validée). Nuance honnête : « un nouveau service s'abonne sans modifier l'émetteur » reste vrai, mais il faut ajouter une ligne dans `ABONNEMENTS` (paquet commun). |
+| 2 | Création de la facture | `reservation.creee` → facturation émet la facture | facturation créait la facture dans `POST /paiements` | Événement `reservation.creee` **émis**. Consommateur : phase 4 (voir 11). |
+| 3 | Paiement | `paiement.recu` | `paiement.confirme` | Nom du **modèle** retenu, consommateur écrit dans hebergement. |
+| 4 | Début de séjour | `sejour.commence` → menage (tâches QUOTIDIEN) | absent | **Ajouté** : émis au check-in. |
+| 5 | Chambre propre | `menage.termine` → hebergement met la chambre PROPRE | la réceptionniste validait à la main (`POST /chambres/:id/propre`) | **Modèle retenu** : passage automatique à PROPRE. À savoir expliquer face au BPMN, qui garde une tâche « Mettre la chambre au statut propre » chez la réceptionniste. |
+| 6 | Minuteur « Date de départ atteinte » | non décrit | job différé au check-in | Simplifié en **`GET /reservations/departs`** (séjours en cours dont le départ est aujourd'hui ou passé) : un minuteur qui ne déclenche rien d'automatique n'a pas besoin de job. |
+| 7 | `cle_idempotence` | `cle`, `route`, `reponse`, `created_at` | — | Créée, **plus** `utilisateur_id` (sinon quelqu'un qui devine une clé relit la réservation d'autrui). `reponse` stocke `{ reservationId }` : le rejeu renvoie l'**état actuel** de la réservation, pas une copie figée. |
+| 8 | Utilisateur (auth) | `telephone` unique = **identifiant principal**, `email` facultatif, `nom`, `langue`, `canal_notification`, `consentement_notifications_le` | connexion par **email**, `nom_complet`, sans téléphone | **Non modifié, à trancher (question A ci-dessous).** |
+| 9 | Hachage | argon2 ou bcrypt | scrypt | Non modifié : scrypt est aussi recommandé par l'OWASP et ne demande aucun module natif (phase 2). À confirmer (question B). |
+| 10 | Nommage | `refresh_token` (`token_hash`) | `session` (`jeton_hash`) | Même contenu, nom différent. Renommage possible, sans urgence. |
+| 11 | Facturation | facture : `commande_id`, `langue`, statut `CLOTUREE`, `emise_le`, `cloturee_le` ; paiement : méthode `ESPECES`, pas de `AUTRE` | absents / `AUTRE` présent, pas `ESPECES` | **Phase 4.** Nos colonnes de sécurité Papi (hash du jeton et du `notificationToken`) s'ajoutent au modèle, elles sont exigées par l'énoncé. |
+| 12 | Saisons | `EXCLUDE daterange(debut, fin)` (bornes `[)` par défaut) + `CHECK date_fin > date_debut` | `'[]'` (fin incluse), pas de CHECK | Non modifié : les **saisons sont V2**. À aligner à ce moment-là. |
+| 13 | Rôle LIVREUR, langue, canal ASSISTANT_IA | présents | — | Hors V1 : non utilisés (ASSISTANT_IA refusé par la validation Zod). |
+| 14 | Route du restaurant | `GET /reservations/en-cours?chambre=204` | — | Créée en **interne** (`/interne/reservations/en-cours`) : c'est un appel entre services, pas une route pour le navigateur. |
+
+### Contrat
+
+Toutes les routes passent par la gateway (`/api/...`), avec les droits de [services/api-gateway/src/regles.ts](../services/api-gateway/src/regles.ts).
+
+| Route | Rôles | Entrée | Sortie | Erreurs |
+|---|---|---|---|---|
+| `POST /reservations` | CLIENT, RECEPTIONNISTE, ADMIN | `categorieId`, client, pièce d'identité, dates, `canal` (personnel) ; en-tête facultatif `Idempotency-Key` (uuid) | 201 + réservation (chambre choisie par le serveur), `Idempotent-Replayed: true` si rejeu | 400, 404 catégorie, 409 `AUCUNE_CHAMBRE_DISPONIBLE`, 422 `CLE_IDEMPOTENCE_REUTILISEE` |
+| `GET /reservations/mes-reservations` | CLIENT | — | ses réservations | — |
+| `GET /reservations/:id` | CLIENT (les siennes), réception | — | réservation | 404 (aussi pour celle d'un autre client) |
+| `GET /reservations/departs` | réception | — | séjours à faire partir | — |
+| `POST /reservations/:id/check-in` | réception | `pieceIdentiteVerifiee: true`, `chambreId?` (réattribution) | réservation EN_COURS | 400, 404, 409 `CHAMBRE_INDISPONIBLE`, 422 (transition, date, chambre sale, autre catégorie) |
+| `POST /reservations/:id/check-out` | réception | — | réservation TERMINEE | 422 transition |
+| `POST /reservations/:id/annuler` | réception | — | réservation ANNULEE | 422 transition |
+| `GET /interne/reservations/en-cours?chambre=` | services | — | séjour en cours dans la chambre | 404 |
+
+**Événements émis** : `reservation.creee`, `reservation.confirmee`, `sejour.commence`, `sejour.termine`. **Consommés** : `paiement.recu`, `menage.termine`.
+**Jobs** : `expirer` (différé 30 min), `relais-outbox` (2 s), `balayage-expirations` (1 min), `purge-idempotence` (3 h, heure de Madagascar).
+
+### Explication 1 — Comment le serveur choisit la chambre sans condition de concurrence
+
+Le piège : « je cherche une chambre libre, puis je la réserve ». Entre les deux, une autre requête peut choisir **la même** chambre, et les deux clients repartent avec une confirmation pour la 101.
+
+Notre solution, dans [reservation.service.ts](../services/hebergement/src/modules/reservation/reservation.service.ts) (`creerReservation`), se fait en deux temps :
+
+```ts
+// 1. Candidates : une INDICATION, pas une garantie
+const candidates = await prisma.chambre.findMany({
+  where: {
+    categorieId: categorie.id,
+    horsService: false,
+    reservations: { none: { statut: { in: [...ACTIFS] }, dateArrivee: { lt: depart }, dateDepart: { gt: arrivee } } },
+  },
+  orderBy: { numero: "asc" },
+});
+
+// 2. On essaie chaque candidate dans SA PROPRE transaction
+for (const chambre of candidates) {
+  try {
+    const reservation = await prisma.$transaction(async (tx) => { /* INSERT réservation + nuitées + outbox */ });
+    return …;                                    // gagné
+  } catch (err) {
+    if (lireErreurBase(err)?.contrainte === "reservation_sans_chevauchement") continue;  // prise entre-temps
+    throw err;
+  }
+}
+throw AucuneChambre();                           // 409
+```
+
+- **La lecture ne garantit rien** : elle évite seulement d'essayer des chambres évidemment prises.
+- **La garantie vient de l'`INSERT`** : la contrainte `EXCLUDE` est vérifiée par PostgreSQL au moment de l'écriture, sur un index. Deux transactions qui insèrent la même chambre sur des dates qui se chevauchent : la seconde **attend** la première ; si la première valide, la seconde échoue en `23P01`.
+- **Chaque essai a sa propre transaction** : après une erreur, PostgreSQL refuse toute nouvelle commande dans la transaction en cours (« current transaction is aborted »). Impossible donc de « rattraper » l'erreur et d'essayer la chambre suivante dans la même transaction.
+- **Le compteur de référence** est incrémenté dans la transaction de l'essai : un essai raté annule aussi son incrément, il n'y a pas de trou.
+- C'est un **verrouillage optimiste** : on ne bloque rien à l'avance, on tente et on recommence en cas de conflit. L'alternative pessimiste (`SELECT … FOR UPDATE` sur les chambres de la catégorie) ferait passer **toutes** les réservations d'une catégorie l'une après l'autre, même sur des dates différentes.
+- Le test « 3 demandes simultanées pour 2 chambres » le prouve : deux 201 sur deux chambres **différentes**, un 409.
+
+### Explication 2 — Comment le job d'expiration est annulé quand le paiement arrive
+
+Trois couches, de la plus rapide à la plus sûre :
+
+1. **Suppression du job** ([expiration.ts](../services/hebergement/src/modules/reservation/expiration.ts)). À la création, on planifie `expirer` avec `jobId = "expiration-<id de la réservation>"` et `delay` = 30 min. Le `jobId` étant **prévisible**, on le retrouve au paiement : `file.remove("expiration-" + id)`, appelé **après** le commit de la confirmation.
+2. **Le job ne fait rien sur une réservation payée**, même s'il n'a pas pu être supprimé (Redis coupé à ce moment-là) :
+   ```ts
+   prisma.reservation.updateMany({
+     where: { id, statut: "EN_ATTENTE_PAIEMENT", expireLe: { lte: new Date() } },
+     data: { statut: "ANNULEE", version: { increment: 1 } },
+   });
+   ```
+   La condition est **dans l'écriture** : il n'y a pas de « je lis le statut, puis j'écris », donc pas de fenêtre entre les deux. Une réservation payée ne correspond plus au `WHERE`, et `count` vaut 0.
+3. **Le paiement ne gagne que s'il arrive le premier.** `confirmerDansTransaction` fait lui aussi un `updateMany` conditionnel (`statut: "EN_ATTENTE_PAIEMENT"`, `version`). Si l'expiration est passée avant, la confirmation est refusée et le paiement est signalé pour remboursement (log `error`). Les deux ne peuvent jamais réussir tous les deux.
+
+Et le **filet** : un balayage toutes les minutes annule les réservations expirées dont le job aurait été perdu (Redis vidé, planification ratée au moment de la création).
+
+La suppression du job est donc une **optimisation** ; la **correction** vient des conditions dans les `WHERE`.
+
+### Explication 3 — Pourquoi l'outbox évite la double écriture
+
+Sans outbox, le check-out ferait deux écritures dans deux systèmes différents :
+
+```ts
+await prisma.reservation.update(…TERMINEE…);     // écriture 1 : PostgreSQL
+await file.add("sejour.termine", …);             // écriture 2 : Redis
+```
+
+- Plantage entre les deux : le séjour est terminé, mais le ménage et la facturation ne l'apprendront **jamais**.
+- Inverser l'ordre ne règle rien : si l'`update` échoue après l'envoi, on a annoncé un départ qui n'a pas eu lieu.
+- Mettre l'envoi **dans** la transaction ne marche pas non plus : Redis ne participe pas à la transaction PostgreSQL, et on ferait un appel réseau pendant qu'on tient des verrous (règle interdite).
+
+Avec l'outbox ([outbox.ts](../services/hebergement/src/outbox.ts)) :
+
+```ts
+await prisma.$transaction(async (tx) => {
+  await tx.reservation.updateMany(…TERMINEE…);
+  await ecrireEvenement(tx, "sejour.termine", {…});   // une LIGNE dans outbox_evenement, même base
+});
+```
+
+1. **Une seule écriture atomique** : la réservation et l'événement sont dans la même base, dans la même transaction. Soit les deux existent, soit aucun (le test « l'événement est écrit… et seulement si elle existe » le vérifie).
+2. Le **relais** (job toutes les 2 s) lit `WHERE publie_le IS NULL`, dépose chaque événement dans la file de chaque abonné, puis remplit `publie_le`.
+3. Si le relais plante **après** l'envoi et **avant** `publie_le`, il renverra l'événement. C'est sans danger grâce à deux barrières : `jobId = id de l'événement` (BullMQ ignore le doublon, testé) et `evenement_traite` chez le consommateur.
+
+Ce qu'on accepte en échange : un délai de 2 secondes au plus, et une livraison « **au moins une fois** » plutôt que « exactement une fois ». Cette seconde propriété n'existe pas entre deux systèmes : on l'approche en rendant chaque consommateur idempotent.
+
+### Autre code expliqué : le consommateur idempotent
+
+```ts
+await prisma.$transaction(async (tx) => {
+  await tx.evenementTraite.create({ data: { evenementId } });   // doublon → viole la clé primaire
+  await effet(tx);
+});
+// …
+if (lireErreurBase(err)?.contrainte === "evenement_traite_pkey") return "doublon";
+```
+
+La marque « déjà traité » et l'effet sont validés **ensemble**. Si l'effet échoue, la marque disparaît aussi, et BullMQ réessaie. On teste le **nom** de la contrainte, pas seulement le code `P2002` : une autre violation d'unicité levée par l'effet est une vraie erreur, pas un doublon.
+
+### Pièges rencontrés
+
+1. **BullMQ 6 ne charge plus `ioredis` tout seul dans un module ESM** (erreur « could not load the optional 'ioredis' package »). Il faut construire le client (`new Redis(url, { maxRetriesPerRequest: null })`) et le passer comme `connection`. BullMQ ne ferme **jamais** un client qu'on lui prête : `bus.fermer()` fait le `quit()`. ⚠️ `services/facturation/src/queue.ts` a le même problème (il passe des options) : à corriger en phase 4 en passant par le bus commun.
+2. **Deux copies de BullMQ** : pnpm installe une variante par combinaison de dépendances « pairs » (avec ou sans ioredis), et TypeScript refuse de mélanger leurs types. Solution : les services n'importent plus BullMQ, ils passent par `bus.traiter()` et `bus.consommer()`.
+3. **Ordre des règles dans la gateway** : `/reservations/departs` doit venir **avant** `/reservations/:id`, sinon un CLIENT l'atteint par la règle `:id`. Un test le vérifie.
+4. **Ordre des routes dans Express** : même raison côté hebergement (`/mes-reservations` avant `/:id`).
+5. **La base protège aussi contre les tests mal écrits** : mettre `date_depart = date_arrivee` pour simuler un départ a été refusé par `CHECK date_depart > date_arrivee`.
+6. **Prédicat de type plutôt que cast** : TypeScript ne sait pas déduire le type d'un schéma Zod construit à partir d'un type générique (`CONTRATS[T]`). `function estEnveloppe(type, d): d is Enveloppe<T>` valide avec Zod et informe TypeScript, sans aucun `as`.
+7. **Tests et Redis** : les tests utilisent le préfixe `hotel-test`, la démo `hotel-e2e`. Les vraies files de dev (`hotel:*`) ne sont jamais touchées.
+
+### Limites connues
+
+- Énumération possible par `POST /auth/inscription` (409 sur un email existant) : parade prévue avec la notification (V2).
+- Un paiement reçu **après** l'expiration est seulement journalisé (`error`) : il faudra un statut d'anomalie côté facturation (phase 4) pour organiser le remboursement.
+- Annuler une réservation **confirmée** (donc payée) ne rembourse rien automatiquement.
+- Départ anticipé : le montant n'est pas recalculé (les nuits réservées restent dues).
+- Les candidates sont essayées dans l'ordre des numéros : sous forte charge, les requêtes simultanées visent d'abord la même chambre et réessaient. Un ordre aléatoire répartirait mieux, au prix d'un comportement moins prévisible.
+
+### Commandes pour tester à la main
+
+```bash
+docker compose up -d postgres redis
+pnpm install && pnpm build:commun
+pnpm --filter @hotel/hebergement exec prisma migrate deploy
+pnpm test                         # 68 tests (hebergement 41, auth 13, gateway 14)
+pnpm dev                          # gateway, auth, hebergement (+ workers BullMQ)
+
+# Autre terminal (compte ADMIN créé en phase 2) :
+ADMIN_MOT_DE_PASSE='…' bash scripts/scenario-phase3.sh
+```
+
+Sortie obtenue lors de l'essai (bases de test) :
+```
+réservation RES-2026-000002, chambre choisie : S271ed5551, statut EN_ATTENTE_PAIEMENT, canal SITE_WEB
+idempotent-replayed: true
+même id ? oui   réservations de ce client en base : 1
+reservation.creee|en attente   →   (3 s plus tard)   reservation.creee|publié
+job dans la file de facturation : 1
+job expiration-… présent : 1   →   confirmer → 200   →   …et il a disparu après le paiement : 0
+CLIENT GET /reservations/departs → 403 · CLIENT GET /reservations/mes-reservations → 200
+check-in sans pièce vérifiée → 400 · check-in (pièce vérifiée) → 200
+check-out → 200 · chambre : S271ed5551 SALE
+reservation.creee → publié · reservation.confirmee → publié · sejour.commence → publié · sejour.termine → publié
+file menage : 1 · file facturation : 1
+check-out une 2e fois → 422 (transition interdite)
+```
+
+> **À refaire de mémoire — phase 3**
+>
+> 1. **Choisir sans concurrence** : lire des candidates, puis `for (…) { try { await prisma.$transaction(…INSERT…) ; return } catch { if (contrainte === "reservation_sans_chevauchement") continue; throw } }` — une transaction **par essai**.
+> 2. **Job différé annulable** : `file.add("expirer", { id }, { jobId: \`expiration-${id}\`, delay })` puis `file.remove(\`expiration-${id}\`)` ; et dans le job : `updateMany({ where: { id, statut: "EN_ATTENTE_PAIEMENT", expireLe: { lte: new Date() } } })`.
+> 3. **Outbox** : `tx.outboxEvenement.create({ data: { type, payload } })` dans la transaction métier ; relais : `findMany({ where: { publieLe: null } })` → `file.add(type, enveloppe, { jobId: evt.id })` → `updateMany({ data: { publieLe: new Date() } })`.
+> 4. **Consommateur idempotent** : `$transaction(tx => { tx.evenementTraite.create({ data: { evenementId } }); effet(tx) })`, et doublon si la contrainte est `evenement_traite_pkey`.
+> 5. **Machine à états** : `const TRANSITIONS: Record<Statut, Statut[]> = {…}` ; `if (!TRANSITIONS[de].includes(vers)) throw RegleMetier(…)`.
+
+### Questions à trancher avant la phase 4
+
+- **A. Identifiant de connexion** : le modèle fait du **téléphone** l'identifiant principal (unique) et de l'email un champ facultatif ; le code actuel se connecte par **email**. À Madagascar, le téléphone est plus universel que l'email. Veux-tu que j'aligne auth sur le modèle (`telephone` obligatoire et unique, connexion par téléphone **ou** email, `nom`, `langue`) ?
+- **B. Hachage** : garder **scrypt** (intégré à Node, recommandé par l'OWASP), ou passer à **argon2** comme le suggère le modèle (module natif à autoriser dans `pnpm-workspace.yaml`) ?
+
+### Questions d'entretien ajoutées
+
+**Deux clients réservent la dernière suite au même instant : que se passe-t-il ?**
+> Les deux lisent la même chambre libre, les deux tentent l'`INSERT`. PostgreSQL fait attendre le second sur l'index de la contrainte EXCLUDE ; quand le premier valide, le second échoue. Notre code passe alors à la chambre suivante et, s'il n'y en a plus, répond 409. La vérification n'est pas dans notre code, elle est dans la base, là où elle ne peut pas être contournée.
+
+**Le client paie à la 29ᵉ minute, le job d'expiration tourne à la 30ᵉ : double effet ?**
+> Non. Les deux font une écriture conditionnelle sur `statut = EN_ATTENTE_PAIEMENT`. Le premier arrivé change le statut, et le second ne trouve plus la ligne (`count = 0`). Le job est en plus supprimé au paiement, mais c'est un confort, pas la garantie.
+
+**Qu'est-ce qu'une livraison « au moins une fois » ?**
+> Un message ne peut pas être perdu, mais il peut arriver deux fois (réessai, relais qui repasse). On l'accepte et on rend le consommateur idempotent : il note l'id de chaque événement traité dans la même transaction que son effet.
+
+**Pourquoi une Idempotency-Key si la base empêche déjà le surbooking ?**
+> Parce que le serveur choisit la chambre : un double clic créerait **deux** réservations valides, sur deux chambres différentes. La contrainte ne voit aucun conflit. La clé dit « c'est la même intention », et le second envoi reçoit la première réservation.
