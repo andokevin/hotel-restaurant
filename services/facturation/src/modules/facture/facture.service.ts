@@ -119,6 +119,52 @@ export async function obtenirFactureSejour(reservationId: string) {
   }
 }
 
+// Facture d'une commande réglée au restaurant (appel interne du service restaurant, qui fournit
+// ses propres prix). Idempotent : une commande n'a qu'une facture (commande_id unique).
+export type DemandeFactureRestaurant = {
+  commandeId: string;
+  reference: string;
+  clientNom: string;
+  lignes: { libelle: string; quantite: number; prixUnitaire: number }[];
+};
+
+export async function creerFactureRestaurant(d: DemandeFactureRestaurant) {
+  const existante = await prisma.facture.findUnique({ where: { commandeId: d.commandeId } });
+  if (existante) return existante;
+  const montant = d.lignes.reduce((s, l) => s + l.quantite * l.prixUnitaire, 0);
+  try {
+    return await prisma.$transaction(async (tx) =>
+      tx.facture.create({
+        data: {
+          numero: await prochainNumero(tx),
+          type: "RESTAURANT",
+          commandeId: d.commandeId,
+          clientNom: d.clientNom,
+          montantTotal: montant,
+          // Une seule ligne par commande (UNIQUE origine + source_id) ; le détail reste dans le restaurant
+          lignes: {
+            create: [
+              {
+                libelle: `Restaurant ${d.reference} : ${d.lignes.map((l) => `${l.libelle} ×${l.quantite}`).join(", ")}`.slice(0, 500),
+                quantite: 1,
+                prixUnitaire: montant,
+                montant,
+                origine: "RESTAURANT",
+                sourceId: d.commandeId,
+              },
+            ],
+          },
+        },
+      }),
+    );
+  } catch (err) {
+    if (lireErreurBase(err)?.contrainte === "facture_commande_id_key") {
+      return prisma.facture.findUniqueOrThrow({ where: { commandeId: d.commandeId } });
+    }
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Lecture
 // ---------------------------------------------------------------------------
@@ -160,6 +206,9 @@ export async function appliquerPaiement(tx: Prisma.TransactionClient, factureId:
   const f = await tx.facture.update({ where: { id: factureId }, data: { montantPaye: { increment: montant } } });
   if (f.montantPaye === f.montantTotal) {
     await tx.facture.update({ where: { id: factureId }, data: { statut: "PAYEE" } });
+    // Un repas payé est terminé : la facture restaurant est clôturée (et copiée au comptable) aussitôt.
+    // Une facture de séjour, elle, attend le départ (des consommations peuvent encore s'ajouter).
+    if (f.type === "RESTAURANT") await cloturerDansTransaction(tx, factureId);
   }
   await ecrireEvenement(tx, "paiement.recu", {
     paiementId,

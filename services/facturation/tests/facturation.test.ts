@@ -414,3 +414,32 @@ describe("Lecture", () => {
     expect((await appel("get", `/paiements/${paiementId}`, CLIENT_B)).status).toBe(404);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe("Facture restaurant (appel interne du service restaurant)", () => {
+  const demande = (commandeId: string) => ({
+    commandeId,
+    reference: "CMD-2026-000001",
+    clientNom: "Table 4",
+    lignes: [
+      { libelle: "Romazava", quantite: 2, prixUnitaire: 18_000 },
+      { libelle: "Jus de baobab", quantite: 1, prixUnitaire: 6_000 },
+    ],
+  });
+
+  it("idempotente, montant calculé, puis clôturée dès l'encaissement complet", async () => {
+    const commandeId = randomUUID();
+    const a = await appel("post", "/interne/factures/restaurant").send(demande(commandeId));
+    const b = await appel("post", "/interne/factures/restaurant").send(demande(commandeId));
+    expect(a.status).toBe(201);
+    expect(b.body.id).toBe(a.body.id);
+    expect(a.body).toMatchObject({ type: "RESTAURANT", montantTotal: 42_000 });
+
+    const encaisse = await appel("post", `/factures/${a.body.id}/encaissements`, RECEPTION).send({ montant: 42_000 });
+    expect(encaisse.body.statut).toBe("CLOTUREE");
+    const [copie] = await evenementsOutbox("facture.cloturee");
+    expect(copie?.payload).toMatchObject({ type: "RESTAURANT", commandeId, lignes: [{ origine: "RESTAURANT", montant: 42_000 }] });
+    const [recu] = await evenementsOutbox("paiement.recu");
+    expect(recu?.payload).toMatchObject({ commandeId, reservationId: null });
+  });
+});

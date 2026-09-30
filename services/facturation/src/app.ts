@@ -4,6 +4,8 @@ import { creerGestionnaireErreurs, exigerCleInterne, journalRequetes } from "@ho
 import { env } from "./config/env.js";
 import { logger } from "./logger.js";
 import { routeurFactures } from "./modules/facture/facture.routes.js";
+import { factureRestaurantSchema } from "./modules/facture/facture.schema.js";
+import { creerFactureRestaurant } from "./modules/facture/facture.service.js";
 import { routeurPaiements } from "./modules/paiement/paiement.routes.js";
 
 export const app = express();
@@ -22,6 +24,11 @@ app.use(exigerCleInterne(env.CLE_INTERNE));
 
 app.use("/factures", routeurFactures);
 app.use("/paiements", routeurPaiements);
+
+// Appel interne du service restaurant (absent de la gateway : le navigateur ne peut pas fixer les prix)
+app.post("/interne/factures/restaurant", async (req, res) => {
+  res.status(201).json(await creerFactureRestaurant(factureRestaurantSchema.parse(req.body)));
+});
 
 app.use(
   creerGestionnaireErreurs({
