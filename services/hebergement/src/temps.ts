@@ -8,3 +8,6 @@ export const aujourdhuiMadagascar = (maintenant = new Date()): string =>
 
 export const anneeMadagascar = (maintenant = new Date()): number =>
   Number(aujourdhuiMadagascar(maintenant).slice(0, 4));
+
+// Une colonne DATE revient de Prisma comme un Date à minuit UTC : on la remet en "AAAA-MM-JJ".
+export const enTexte = (d: Date): string => d.toISOString().slice(0, 10);

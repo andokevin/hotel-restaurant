@@ -1,17 +1,20 @@
 import { z } from "zod";
 import { aujourdhuiMadagascar } from "../../temps.js";
 
+// Décision D3 : le client choisit une CATÉGORIE, le serveur choisit la chambre.
 export const creerReservationSchema = z
   .object({
-    chambreId: z.uuid(),
-    clientNom: z.string().min(2).max(100),
+    categorieId: z.uuid(),
+    clientNom: z.string().trim().min(2).max(100),
     clientTelephone: z.string().regex(/^0(32|33|34|37|38)\d{7}$/, "Numéro malgache invalide"),
     clientEmail: z.email().optional(),
     pieceIdentiteType: z.enum(["CIN", "PASSEPORT"]),
-    pieceIdentiteNumero: z.string().min(4).max(30),
+    pieceIdentiteNumero: z.string().trim().min(4).max(30),
     dateArrivee: z.iso.date(),
     dateDepart: z.iso.date(),
-    canal: z.enum(["SITE_WEB", "RECEPTION", "FACEBOOK", "ASSISTANT_IA"]).default("RECEPTION"),
+    // Canal V1 déclaré par le personnel ; pour un CLIENT, il est forcé à SITE_WEB.
+    // (ASSISTANT_IA existe dans l'enum de la base mais relève de la V3.)
+    canal: z.enum(["RECEPTION", "FACEBOOK", "SITE_WEB"]).default("RECEPTION"),
     langue: z.enum(["FR", "MG", "EN"]).default("FR"),
   })
   // Les dates sont des chaînes AAAA-MM-JJ : l'ordre alphabétique est l'ordre chronologique.
@@ -28,5 +31,18 @@ export const filtreReservationSchema = z.object({
   statut: z.enum(["EN_ATTENTE_PAIEMENT", "CONFIRMEE", "EN_COURS", "TERMINEE", "ANNULEE"]).optional(),
 });
 
+// Tâche BPMN « Vérifier la pièce d'identité » : la réceptionniste doit le confirmer explicitement.
+export const checkInSchema = z.object({
+  pieceIdentiteVerifiee: z.literal(true, "La pièce d'identité doit être vérifiée avant le check-in"),
+  // Réattribution : une autre chambre PROPRE de la même catégorie
+  chambreId: z.uuid().optional(),
+});
+
+export const enCoursSchema = z.object({ chambre: z.string().min(1).max(10) });
+
+// En-tête Idempotency-Key : un uuid généré par le client pour chaque NOUVELLE action.
+export const cleIdempotenceSchema = z.uuid("Idempotency-Key doit être un uuid").optional();
+
 export type CreerReservationDTO = z.infer<typeof creerReservationSchema>;
 export type FiltreReservation = z.infer<typeof filtreReservationSchema>;
+export type CheckInDTO = z.infer<typeof checkInSchema>;

@@ -129,6 +129,7 @@ model Reservation {
 
   @@index([chambreId, dateArrivee])
   @@index([statut])
+  @@index([clientId])
   @@map("reservation")
 }
 
@@ -153,4 +154,45 @@ model CompteurReservation {
   dernierNumero Int @map("dernier_numero")
 
   @@map("compteur_reservation")
+}
+
+
+// ---------------------------------------------------------------------------
+// Tables techniques (docs/modele-donnees.md, « Mécanismes communs »)
+// ---------------------------------------------------------------------------
+
+// Outbox : l'événement est écrit dans la MÊME transaction que la donnée métier,
+// puis publié dans BullMQ par le relais. publie_le reste nul tant que ce n'est pas fait.
+model OutboxEvenement {
+  id        String    @id @default(uuid()) @db.Uuid // sert d'id d'événement
+  type      String
+  payload   Json
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  publieLe  DateTime? @map("publie_le") @db.Timestamptz
+
+  @@index([publieLe, createdAt])
+  @@map("outbox_evenement")
+}
+
+// Un consommateur insère l'id AVANT de traiter, dans la même transaction que l'effet :
+// un doublon viole la clé primaire et n'a donc aucun effet.
+model EvenementTraite {
+  evenementId String   @id @map("evenement_id") @db.Uuid
+  traiteLe    DateTime @default(now()) @map("traite_le") @db.Timestamptz
+
+  @@map("evenement_traite")
+}
+
+// Une requête renvoyée (double clic, coupure réseau) avec la même Idempotency-Key
+// reçoit la réponse déjà enregistrée au lieu de créer un doublon. Purge après 7 jours.
+model CleIdempotence {
+  cle           String   @id @db.Uuid
+  route         String
+  // Ajout au modèle : la clé est liée à son auteur, sinon quelqu'un qui la devinerait
+  // pourrait relire la réponse d'un autre client.
+  utilisateurId String?  @map("utilisateur_id") @db.Uuid
+  reponse       Json
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("cle_idempotence")
 }
