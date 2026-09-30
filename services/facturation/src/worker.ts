@@ -3,6 +3,7 @@ import { prisma } from "./db.js";
 import { connexionRedis, type JobCallbackPapi } from "./queue.js";
 import { confirmerReservation } from "./hebergement.js";
 import { METHODES_PAPI } from "./papi.js";
+import { logger } from "./logger.js";
 
 export const demarrerWorker = () =>
   new Worker<JobCallbackPapi>(
@@ -35,7 +36,7 @@ export const demarrerWorker = () =>
           where: { id: paiement.id },
           data: { statut: "ECHOUE", erreur: `Montant incohérent : reçu ${d.montant}, attendu ${paiement.montant}` },
         });
-        console.error("ALERTE : montant incohérent", d);
+        logger.error({ callback: d }, "ALERTE : montant incohérent");
         return;
       }
 

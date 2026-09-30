@@ -9,6 +9,8 @@ const schema = z.object({
   PUBLIC_URL: z.url(),
   FRONT_URL: z.url(),
   HEBERGEMENT_URL: z.url(),
+  // Secret partagé avec les autres services pour les routes /interne
+  CLE_INTERNE: z.string().min(16),
 });
 
 const parsed = schema.safeParse(process.env);

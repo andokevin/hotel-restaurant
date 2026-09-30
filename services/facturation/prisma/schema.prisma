@@ -8,29 +8,38 @@ datasource db {
   provider = "postgresql"
 }
 
-enum TypeFacture  { SEJOUR
- RESTAURANT 
- }
-enum StatutFacture  { 
-    EMISE
-    PAYEE
-    ANNULEE 
-  }
-enum Origine       { 
-    HEBERGEMENT
-    RESTAURANT
-    LIVRAISON 
-  }
-enum StatutPaiement  { 
-    EN_ATTENTE
-    REUSSI
-    ECHOUE 
+// Règle : une valeur d'enum par ligne, toujours.
+// Une valeur écrite sur la même ligne que « { » est IGNORÉE par Prisma, sans erreur
+// (c'est ainsi que SEJOUR et MVOLA avaient disparu de la base).
+enum TypeFacture {
+  SEJOUR
+  RESTAURANT
 }
-enum MethodePaiement { MVOLA
-   AIRTEL_MONEY
-   ORANGE_MONEY
-   CARTE
-   AUTRE 
+
+enum StatutFacture {
+  EMISE
+  PAYEE
+  ANNULEE
+}
+
+enum Origine {
+  HEBERGEMENT
+  RESTAURANT
+  LIVRAISON
+}
+
+enum StatutPaiement {
+  EN_ATTENTE
+  REUSSI
+  ECHOUE
+}
+
+enum MethodePaiement {
+  MVOLA
+  AIRTEL_MONEY
+  ORANGE_MONEY
+  CARTE
+  AUTRE
 }
 
 model Facture {

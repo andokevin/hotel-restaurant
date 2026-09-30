@@ -1,21 +1,25 @@
 import { z } from "zod";
 import { UnrecoverableError } from "bullmq";
+import { AppError, EN_TETE_CLE_INTERNE, NotFound } from "@hotel/commun";
 import { env } from "./config/env.js";
-import { AppError, NotFound } from "./errors.js";
+
+// Client REST du service hebergement : on appelle ses routes /interne,
+// protégées par la clé partagée entre services.
+const enTetes = { [EN_TETE_CLE_INTERNE]: env.CLE_INTERNE };
 
 const reservationSchema = z.object({
   id: z.uuid(),
   reference: z.string(),
-  statut: z.string(),
+  statut: z.enum(["EN_ATTENTE_PAIEMENT", "CONFIRMEE", "EN_COURS", "TERMINEE", "ANNULEE"]),
   montantTotal: z.number().int(),
   clientNom: z.string(),
   clientEmail: z.string().nullable(),
   chambre: z.object({ numero: z.string() }),
-  nuitees: z.array(z.unknown()),
 });
 
 export async function lireReservation(id: string) {
-  const res = await fetch(`${env.HEBERGEMENT_URL}/reservations/${id}`, {
+  const res = await fetch(`${env.HEBERGEMENT_URL}/interne/reservations/${id}`, {
+    headers: enTetes,
     signal: AbortSignal.timeout(5_000),
   });
   if (res.status === 404) throw NotFound("Réservation");
@@ -24,8 +28,9 @@ export async function lireReservation(id: string) {
 }
 
 export async function confirmerReservation(id: string) {
-  const res = await fetch(`${env.HEBERGEMENT_URL}/reservations/${id}/confirmer`, {
+  const res = await fetch(`${env.HEBERGEMENT_URL}/interne/reservations/${id}/confirmer`, {
     method: "POST",
+    headers: enTetes,
     signal: AbortSignal.timeout(5_000),
   });
   if (res.status === 422) {

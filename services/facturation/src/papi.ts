@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { env } from "./config/env.js";
-import { AppError } from "./errors.js";
+import { AppError } from "@hotel/commun";
 
 const reponseSchema = z.object({ data: z.object({ url: z.url() }) });
 
