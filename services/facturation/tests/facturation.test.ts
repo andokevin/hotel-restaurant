@@ -272,6 +272,12 @@ describe("Traitement de la notification (worker)", () => {
     expect((await facture(evt.payload.reservationId)).montantPaye).toBe(0);
   });
 
+  it("forme réelle de Papi : « message: null » ne devient pas le texte \"null\"", async () => {
+    const { demande, paiementId } = await factureEtLien();
+    await traiterNotification(job(paiementId, notificationReussie(demande, { paymentStatus: "FAILED", message: null })));
+    expect(await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).toMatchObject({ statut: "ECHOUE", erreur: "Paiement refusé" });
+  });
+
   it("FAILED : paiement ECHOUE ; PENDING : rien ne change", async () => {
     const { demande, paiementId } = await factureEtLien();
 

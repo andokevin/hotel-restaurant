@@ -63,16 +63,23 @@ export async function creerLienPaiement(d: DemandeLien): Promise<{ url: string; 
 // Notification envoyée par Papi. Volontairement PERMISSIVE (comme Reclamia) : sa forme exacte
 // n'est pas garantie, et un 400 ferait perdre un vrai paiement. Les vraies vérifications
 // (jeton, notificationToken, montant, référence) sont faites dans le worker.
+// Texte facultatif : null/absent → undefined. (z.coerce.string() transformerait null en "null" :
+// c'est ce qu'a révélé la première vraie notification, qui envoie "message": null.)
+const texte = z.preprocess((v) => (v === null || v === undefined ? undefined : String(v)), z.string().optional());
+
+// Forme observée sur une vraie notification (sandbox, 01/10/2026) : paymentStatus, paymentReference,
+// merchantPaymentReference, notificationToken, amount, currency, paymentMethod, message (null),
+// displayCurrency, estimatedAmount, fee, clientName, description, payerEmail, payerPhone.
 export const notificationSchema = z
   .object({
-    paymentStatus: z.coerce.string().optional(),
-    paymentReference: z.coerce.string().optional(), // id Papi → reference_externe (idempotence)
-    merchantPaymentReference: z.coerce.string().optional(), // notre reference (id du paiement)
-    notificationToken: z.coerce.string().optional(),
-    amount: z.coerce.number().optional(),
-    currency: z.coerce.string().optional(),
-    paymentMethod: z.coerce.string().optional(),
-    message: z.coerce.string().optional(),
+    paymentStatus: texte,
+    paymentReference: texte, // id Papi → reference_externe (idempotence)
+    merchantPaymentReference: texte, // notre reference (id du paiement)
+    notificationToken: texte,
+    amount: z.preprocess((v) => (v === null || v === undefined ? undefined : Number(v)), z.number().optional()),
+    currency: texte,
+    paymentMethod: texte,
+    message: texte,
   })
   .loose();
 

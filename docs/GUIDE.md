@@ -1491,3 +1491,45 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 6. **Ménage** (0341000002) : tâche DEPART → démarrer, terminer avec les 4 articles → chambre PROPRE, stock −1.
 7. **Comptable** (0341000005) : générer le tableau du jour (écart en rouge si les articles ne correspondent pas aux nuitées), reversement au restaurant.
 8. Montrer un test qui casse si on retire la contrainte EXCLUDE : c'est la base qui protège, pas le code.
+
+---
+
+## Journal — Validation avec le vrai Papi.mg (sandbox, 01/10/2026)
+
+Avec la vraie clé d'Ando (mode test), via un tunnel cloudflared (binaire officiel téléchargé, sans installation système) vers la gateway, les services tournant sur les bases de test.
+
+| Étape | Résultat |
+|---|---|
+| `POST /api/paiements` → facturation → `POST https://app.papi.mg/dashboard/api/payment-links` (en-tête `Token`) | ✅ lien `https://payment-form.papi.mg/hotel/payments/…`, page « HR **Sandbox** », 85 000 MGA, facture et payeur affichés |
+| Paiement MVola avec le numéro de test **0341230001** (succès) | ✅ notification `SUCCESS` reçue par le tunnel → jeton vérifié → 200 → worker : `notificationToken` et montant contrôlés → paiement **REUSSI (MVOLA)**, facture **PAYEE**, réservation **CONFIRMEE** (événement `paiement.recu`) |
+| Paiement avec **0341230002** (solde insuffisant) | ✅ notification `FAILED` → paiement **ECHOUE**, avec le message de Papi |
+| Erreurs dans les journaux | aucune |
+
+Numéros de test de la sandbox MVola (bouton « Numéros de test à utiliser ») : `0341230001` succès, `0341230002` solde insuffisant, `0341230003` numéro invalide.
+
+**Forme réelle de la notification** (secrets masqués) :
+```json
+{
+  "paymentStatus": "SUCCESS",
+  "paymentReference": "37b23332-…",          // id Papi → reference_externe
+  "merchantPaymentReference": "20cc77f4-…",  // NOTRE id de paiement
+  "notificationToken": "*** (36 caractères)",
+  "amount": 85000, "currency": "MGA", "paymentMethod": "MVOLA",
+  "message": null, "displayCurrency": "MGA", "estimatedAmount": null, "fee": 0,
+  "clientName": "Jean Rakoto", "description": "Hôtel – facture FAC-2026-000002",
+  "payerEmail": "jean.rakoto@mail.mg", "payerPhone": "+261 34 12 300 01"
+}
+```
+
+**Ce que la vraie notification a appris** :
+1. `"message": null` devenait le **texte `"null"`** avec `z.coerce.string()`. Corrigé (`z.preprocess` : null → absent), avec un test.
+2. Le lien de paiement Papi reste valable **environ 2 heures** (`exp` du jeton dans l'URL), alors que la réservation expire en 30 minutes. Un paiement tardif est géré : la demande de lien est refusée si la réservation est ANNULEE ; et si un ancien lien est payé après l'expiration, hebergement journalise « paiement reçu pour une réservation non confirmable ». À rembourser à la main.
+3. **`X-Papi-Signature`** : pas vu dans le corps (un en-tête n'apparaît pas dans le job). La vérification par jeton d'URL + `notificationToken` a suffi à authentifier les deux notifications.
+
+**Refaire l'essai** :
+```bash
+cloudflared tunnel --url http://localhost:3000            # noter l'URL https://….trycloudflare.com
+# services/facturation/.env : PUBLIC_URL=<l'URL du tunnel>   (PAPI_BASE_URL=https://app.papi.mg, PAPI_MODE_TEST=true)
+pnpm dev                                                    # puis payer depuis le front avec 0341230001
+```
+Attention : l'URL d'un tunnel rapide change à chaque lancement, et le tunnel **expire** s'il reste inactif longtemps (« Tunnel not found ») : il faut alors le relancer et mettre à jour `PUBLIC_URL`.
