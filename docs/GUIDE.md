@@ -1356,7 +1356,7 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 **Pourquoi un index partiel plutôt qu'une vérification dans le code ?**
 > Pour la même raison que la contrainte EXCLUDE : « je regarde s'il existe un paiement en attente, sinon j'en crée un » laisse une fenêtre où deux requêtes voient « aucun » et créent chacune le leur. L'index est vérifié au moment de l'écriture, de façon atomique.
 
-### Question ouverte (à trancher)
+### Question tranchée : envoi du reçu par email → service notification (V2)
 
 **Envoi du reçu par email** : les données sont prêtes (email obligatoire, facture complète, événements `paiement.recu` et `facture.cloturee`). L'envoi relève du service notification dans le modèle (V2). Veux-tu l'envoyer **dès la V1** ? Si oui, avec quel fournisseur (SMTP de ton hébergeur, Brevo, Resend…), et depuis quelle adresse ?
 
@@ -1474,8 +1474,8 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 
 ### Limites assumées (à dire en soutenance)
 
-- **Envoi d'emails** (reçu, confirmation) : les données sont prêtes (email obligatoire), l'envoi relève du service notification (V2). Question restée ouverte.
-- **`X-Papi-Signature`** non vérifiée : procédure officielle non disponible. Deux autres vérifications sont en place.
+- **Envoi d'emails** (reçu, confirmation) : **décision d'Ando : laissé au service notification (V2)**. Les données sont prêtes (email obligatoire) et les événements existent déjà (`reservation.confirmee`, `paiement.recu`, `facture.cloturee`) : le service notification n'aura qu'à s'y abonner.
+- **`X-Papi-Signature`** non vérifiée : procédure officielle non disponible. Les deux autres vérifications (jeton d'URL + `notificationToken`) ont authentifié les vraies notifications de la sandbox Papi.
 - **Remboursements** (paiement en `ANOMALIE`, annulation d'une réservation payée) : manuels.
 - **Image Docker** unique (~1,2 Go) : les dépendances de développement sont gardées pour `prisma migrate deploy` et le faux Papi.
 - **Front** : pas de tests automatisés. Vérifié dans Chromium (piloté par CDP) : les 25 écrans des 7 rôles s'affichent sans erreur JavaScript ni erreur d'API, et le parcours client complet fonctionne (formulaire → réservation → faux Papi → page de retour « Réussi » → réservation Confirmée).
