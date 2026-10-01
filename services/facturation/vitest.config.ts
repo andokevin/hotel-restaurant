@@ -17,7 +17,7 @@ export default defineConfig({
       NODE_ENV: "test",
       CLE_INTERNE: "cle-interne-de-test-0123456789",
       REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6381",
-      BULLMQ_PREFIXE: "hotel-test",
+      BULLMQ_PREFIXE: "hotel-test-facturation", // un préfixe PAR service : les suites tournent en parallèle et vident leurs files
       // Jamais la vraie clé Papi en test : un faux Papi local répond (tests/faux-services.ts)
       PAPI_API_KEY: "cle-papi-de-test",
       PAPI_MODE_TEST: "true",

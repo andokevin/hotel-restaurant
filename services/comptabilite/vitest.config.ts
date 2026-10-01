@@ -17,7 +17,7 @@ export default defineConfig({
       NODE_ENV: "test",
       CLE_INTERNE: "cle-interne-de-test-0123456789",
       REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6381",
-      BULLMQ_PREFIXE: "hotel-test",
+      BULLMQ_PREFIXE: "hotel-test-comptabilite", // un préfixe PAR service : les suites tournent en parallèle et vident leurs files
       HEBERGEMENT_URL: "http://127.0.0.1:1",
       STOCK_URL: "http://127.0.0.1:1",
     },

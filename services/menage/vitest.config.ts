@@ -17,7 +17,7 @@ export default defineConfig({
       NODE_ENV: "test",
       CLE_INTERNE: "cle-interne-de-test-0123456789",
       REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6381",
-      BULLMQ_PREFIXE: "hotel-test",
+      BULLMQ_PREFIXE: "hotel-test-menage", // un préfixe PAR service : les suites tournent en parallèle et vident leurs files
       AUTH_URL: "http://127.0.0.1:1", // auth injoignable en test : le nom reste vide, la tâche avance quand même
     },
     globalSetup: ["./tests/preparation-globale.ts"],
