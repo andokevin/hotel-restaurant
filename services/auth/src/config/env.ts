@@ -14,6 +14,9 @@ const schema = z.object({
   SCRYPT_N: z.coerce.number().int().default(131072),
   // Chemin du cookie VU PAR LE NAVIGATEUR, c'est-à-dire derrière la gateway
   COOKIE_CHEMIN: z.string().default("/api/auth"),
+  // Cookie « Secure » : envoyé seulement en HTTPS. Par défaut : oui en production.
+  // À mettre à false pour une démo en HTTP sur le réseau local (http://192.168.x.x:8080).
+  COOKIE_SECURISE: z.enum(["true", "false"]).optional(),
 });
 
 const parsed = schema.safeParse(process.env);

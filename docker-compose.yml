@@ -4,6 +4,9 @@
 x-service: &service
   profiles: ["app"]
   restart: unless-stopped
+  # Image unique, construite une seule fois (voir le service api-gateway, qui porte le « build »)
+  image: hotel-restaurant/app:latest
+  pull_policy: never
   depends_on:
     postgres: { condition: service_healthy }
     redis: { condition: service_started }
@@ -44,27 +47,29 @@ services:
   # --- Services (réseau interne : aucun port publié, sauf la gateway) ---
   auth:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: auth } }
     environment:
       <<: *env-commun
+      SERVICE: auth
       PORT: 3003
       DATABASE_URL: postgresql://hotel:hotel@postgres:5432/auth_db
       JWT_CLE_PRIVEE: ${JWT_CLE_PRIVEE:-}
       COOKIE_CHEMIN: /api/auth
+      # false : démo en HTTP (localhost ou IP du réseau local). true derrière HTTPS.
+      COOKIE_SECURISE: ${COOKIE_SECURISE:-false}
 
   hebergement:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: hebergement } }
     environment:
       <<: *env-commun
+      SERVICE: hebergement
       PORT: 3001
       DATABASE_URL: postgresql://hotel:hotel@postgres:5432/hebergement_db
 
   facturation:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: facturation } }
     environment:
       <<: *env-commun
+      SERVICE: facturation
       PORT: 3002
       DATABASE_URL: postgresql://hotel:hotel@postgres:5432/facturation_db
       PAPI_BASE_URL: ${PAPI_BASE_URL:-http://faux-papi:4010}
@@ -77,26 +82,26 @@ services:
 
   menage:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: menage } }
     environment:
       <<: *env-commun
+      SERVICE: menage
       PORT: 3004
       DATABASE_URL: postgresql://hotel:hotel@postgres:5432/menage_db
       AUTH_URL: http://auth:3003
 
   stock:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: stock } }
     environment:
       <<: *env-commun
+      SERVICE: stock
       PORT: 3005
       DATABASE_URL: postgresql://hotel:hotel@postgres:5432/stock_db
 
   restaurant:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: restaurant } }
     environment:
       <<: *env-commun
+      SERVICE: restaurant
       PORT: 3006
       DATABASE_URL: postgresql://hotel:hotel@postgres:5432/restaurant_db
       HEBERGEMENT_URL: http://hebergement:3001
@@ -104,9 +109,9 @@ services:
 
   comptabilite:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: comptabilite } }
     environment:
       <<: *env-commun
+      SERVICE: comptabilite
       PORT: 3007
       DATABASE_URL: postgresql://hotel:hotel@postgres:5432/comptabilite_db
       HEBERGEMENT_URL: http://hebergement:3001
@@ -115,11 +120,12 @@ services:
   # --- Point d'entrée unique ---
   api-gateway:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: api-gateway } }
+    build: { context: ., dockerfile: docker/app.Dockerfile }
     depends_on: [auth, hebergement, facturation, menage, stock, restaurant, comptabilite]
     ports:
       - "3000:3000"
     environment:
+      SERVICE: api-gateway
       NODE_ENV: production
       PORT: 3000
       CLE_INTERNE: ${CLE_INTERNE:-}
@@ -144,7 +150,7 @@ services:
   # Faux Papi pour la démonstration (voir services/facturation/scripts/faux-papi.ts)
   faux-papi:
     <<: *service
-    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: facturation } }
+    working_dir: /app/services/facturation
     command: ["pnpm", "exec", "tsx", "scripts/faux-papi.ts"]
     depends_on: []
     ports:

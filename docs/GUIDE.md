@@ -1428,7 +1428,7 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 - `Idempotency-Key` générée une fois par formulaire de réservation.
 
 **Livraison** :
-- `docker/service.Dockerfile` : **une** image générique pour les 8 services (`--build-arg SERVICE=…`). Au démarrage : `prisma migrate deploy` (jamais `migrate dev`), puis `node dist/server.js`.
+- `docker/app.Dockerfile` : **une seule image** pour les 8 services ; chaque conteneur choisit le sien avec `SERVICE=…` (`docker/demarrer.sh`). Au démarrage : `prisma migrate deploy` (jamais `migrate dev`), puis `node dist/server.js`. Une image par service (~900 Mo × 8) avait rempli le disque pendant les essais.
 - `docker-compose.yml` : profil `app` pour l'application complète. Sans profil, seuls PostgreSQL et Redis démarrent (usage de développement inchangé). Seuls la gateway (3000), le front (8080) et le faux Papi (4010) publient un port.
 - `scripts/generer-env-docker.sh` (secrets, sans jamais écraser un `.env` existant), `scripts/seed.sh` (données réalistes **par l'API** : les règles métier s'appliquent), [README](../README.md) en 5 commandes.
 
@@ -1436,9 +1436,58 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 1. `prisma.config.ts` appelait `process.loadEnvFile()`, qui **lève une erreur** s'il n'y a pas de `.env` (cas d'un conteneur) : entouré d'un `try/catch`.
 2. `prisma generate` lit la config, qui exige `DATABASE_URL`, même pour générer le client : URL factice **à la construction seulement**.
 3. `${VAR:?message}` dans le compose fait échouer **toutes** les commandes compose (même `exec postgres`) tant que le `.env` racine n'existe pas : remplacé par `${VAR:-}`. C'est la validation Zod de chaque service qui refuse alors de démarrer, avec un message clair.
-4. Images d'environ 900 Mo : elles gardent les dépendances de développement (Prisma CLI pour `migrate deploy`, tsx pour le faux Papi). `pnpm deploy --prod` en multi-étapes les réduirait ; c'est hors du temps disponible.
+4. **Disque plein** : 10 images de ~900 Mo + le cache de construction ont saturé le disque système, et PostgreSQL s'est arrêté (« No space left on device »). Solution : une image unique pour tous les services, et un cache pnpm partagé (`RUN --mount=type=cache`).
 
 > **À refaire de mémoire — phases 8 et 9**
 > 1. Rafraîchissement unique : `let enCours: Promise<string> | null = null; const rafraichir = () => (enCours ??= appelRafraichir().finally(() => (enCours = null)));`
 > 2. Image d'un service du monorepo : `pnpm install --frozen-lockfile --filter "@hotel/${SERVICE}..."` (le service **et** ses dépendances du workspace).
 > 3. Au démarrage d'un conteneur : `prisma migrate deploy && node dist/server.js`.
+
+---
+
+## Bilan final (V1 terminée)
+
+### Ce qui est livré
+
+| Élément | État |
+|---|---|
+| 8 services (auth, hebergement, facturation, menage, stock, restaurant, comptabilite, api-gateway) + `packages/commun` | ✅ |
+| Une base par service, aucune clé étrangère entre services (id + snapshot) | ✅ |
+| Événements BullMQ du BPMN, outbox, consommateurs idempotents | ✅ |
+| Paiement Papi.mg (API de Reclamia) : montant serveur, jeton haché, `notificationToken`, montant contrôlé, idempotence, 200 immédiat + worker | ✅ (faux Papi pour la démo, vrai Papi via cloudflared) |
+| Front React : parcours client + un espace par rôle | ✅ |
+| docker-compose complet, seed réaliste, README en 5 commandes | ✅ |
+| Tests | **121** : hebergement 44, facturation 25, auth 16, gateway 16, restaurant 6, stock 6, menage 5, comptabilite 3 |
+| Scénario complet à travers les 8 services (`scripts/scenario-complet.sh`) | ✅ |
+
+### Règles métier du sujet → où elles sont garanties
+
+| Règle | Garantie |
+|---|---|
+| Pas de surbooking | Contrainte `EXCLUDE` PostgreSQL ; le serveur choisit la chambre avec une transaction par essai |
+| Seules les chambres propres au check-in | `updateMany({ where: { etatMenage: "PROPRE" } })` dans la transaction du check-in ; réattribution possible |
+| 1 nuitée = 1 gel douche, 1 papier, 1 paire de pantoufles, 1 brosse à dents | Une tâche de ménage par nuitée ; sortie atomique du stock ; contrôle de 23 h |
+| La femme de ménage notifie la réceptionniste | `menage.termine` → chambre PROPRE |
+| Copie de chaque facture au comptable, factures comptées par jour, tableau de bord | `facture.cloturee` → copie ; job répétable 23 h (Madagascar) |
+| Consommation restaurant ajoutée à la chambre, argent au restaurant | `consommation.imputee` → ligne `origine = RESTAURANT` → reversement |
+| Réservation non payée libérée après 30 min | Job BullMQ différé + écriture conditionnelle + balayage |
+
+### Limites assumées (à dire en soutenance)
+
+- **Envoi d'emails** (reçu, confirmation) : les données sont prêtes (email obligatoire), l'envoi relève du service notification (V2). Question restée ouverte.
+- **`X-Papi-Signature`** non vérifiée : procédure officielle non disponible. Deux autres vérifications sont en place.
+- **Remboursements** (paiement en `ANOMALIE`, annulation d'une réservation payée) : manuels.
+- **Image Docker** unique (~1,2 Go) : les dépendances de développement sont gardées pour `prisma migrate deploy` et le faux Papi.
+- **Front** : aucun test automatisé ; vérifié par le build, le typecheck et la concordance avec les routes de la gateway.
+- **Limite de tentatives de connexion en mémoire** (une seule gateway) ; version Redis décrite en phase 3.
+
+### Démonstration conseillée (10 minutes)
+
+1. `docker compose --profile app up -d` puis le seed (README).
+2. **Client** (0331234567) : réserver une Suite senior → payer avec le faux Papi → la réservation passe CONFIRMEE (événement `paiement.recu`).
+3. **Réception** (0341000001) : check-in (montrer le refus d'une chambre SALE et la réattribution).
+4. **Restaurant** (0341000004) : commande de 2 Romazava → imputer à la chambre.
+5. **Réception** : check-out → la facture montre HEBERGEMENT + RESTAURANT ; encaisser le solde en espèces, clôturer.
+6. **Ménage** (0341000002) : tâche DEPART → démarrer, terminer avec les 4 articles → chambre PROPRE, stock −1.
+7. **Comptable** (0341000005) : générer le tableau du jour (écart en rouge si les articles ne correspondent pas aux nuitées), reversement au restaurant.
+8. Montrer un test qui casse si on retire la contrainte EXCLUDE : c'est la base qui protège, pas le code.

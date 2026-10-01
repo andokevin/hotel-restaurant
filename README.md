@@ -31,6 +31,9 @@ Comptes de démonstration créés par le seed (mot de passe : `SEED_MOT_DE_PASSE
 | COMMUNICATION | 0341000006 | communication@hotel-tana.mg |
 | CLIENT | 0331234567 | jean.rakoto@mail.mg |
 
+Démo depuis un autre appareil du réseau local : ouvrir `http://<IP-de-la-machine>:8080`
+(le cookie de session n'exige pas HTTPS par défaut, `COOKIE_SECURISE=false` ; le mettre à `true` derrière HTTPS).
+
 Le paiement passe par un **faux Papi** (http://localhost:4010) : la page propose « Payer » ou « Refuser »
 et envoie la notification comme le vrai. Pour le vrai Papi en mode test, voir « Paiement réel » plus bas.
 

@@ -15,7 +15,7 @@ export const NOM_COOKIE = "hotel_session";
 const optionsCookie = (): CookieOptions => ({
   httpOnly: true,
   sameSite: "strict",
-  secure: env.NODE_ENV === "production", // HTTPS obligatoire en production
+  secure: env.COOKIE_SECURISE ? env.COOKIE_SECURISE === "true" : env.NODE_ENV === "production", // HTTPS en production
   path: env.COOKIE_CHEMIN,
   maxAge: DUREE_SESSION_MS,
 });

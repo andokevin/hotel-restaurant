@@ -10,6 +10,10 @@ export function MesReservations() {
   const reservations = useQuery({
     queryKey: ["reservations", "miennes"],
     queryFn: () => api.get<Reservation[]>("/reservations/mes-reservations"),
+    // Après un paiement, la confirmation arrive par événement (quelques secondes) :
+    // tant qu'une réservation attend son paiement, on relit la liste toutes les 3 s.
+    refetchInterval: (requete) =>
+      requete.state.data?.some((r) => r.statut === "EN_ATTENTE_PAIEMENT") ? 3_000 : false,
   });
 
   return (
