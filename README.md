@@ -4,6 +4,7 @@ Projet de cours : le processus BPMN d'un hôtel-restaurant à Madagascar (réser
 Papi.mg, séjour, ménage, stock, restaurant, comptabilité), découpé en services indépendants.
 
 - **Guide complet** (architecture, choix techniques, journal de chaque phase, questions d'entretien) : [docs/GUIDE.md](docs/GUIDE.md)
+- **Étude du code** (chaque fonctionnalité : fichiers, fonctions, variables, logique, techniques) : [docs/ETUDE-DU-CODE.md](docs/ETUDE-DU-CODE.md)
 - **Front** : [apps/web/README.md](apps/web/README.md)
 
 ## Lancer l'application en 5 commandes
