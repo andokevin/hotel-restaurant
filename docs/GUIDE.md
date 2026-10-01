@@ -1456,7 +1456,7 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 | Événements BullMQ du BPMN, outbox, consommateurs idempotents | ✅ |
 | Paiement Papi.mg (API de Reclamia) : montant serveur, jeton haché, `notificationToken`, montant contrôlé, idempotence, 200 immédiat + worker | ✅ (faux Papi pour la démo, vrai Papi via cloudflared) |
 | Front React : parcours client + un espace par rôle | ✅ |
-| docker-compose complet, seed réaliste, README en 5 commandes | ✅ |
+| docker-compose complet (image unique pour les 8 services), seed réaliste et rejouable, README en 5 commandes | ✅ (stack de 12 conteneurs démarré et vérifié) |
 | Tests | **121** : hebergement 44, facturation 25, auth 16, gateway 16, restaurant 6, stock 6, menage 5, comptabilite 3 |
 | Scénario complet à travers les 8 services (`scripts/scenario-complet.sh`) | ✅ |
 
@@ -1478,7 +1478,7 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 - **`X-Papi-Signature`** non vérifiée : procédure officielle non disponible. Deux autres vérifications sont en place.
 - **Remboursements** (paiement en `ANOMALIE`, annulation d'une réservation payée) : manuels.
 - **Image Docker** unique (~1,2 Go) : les dépendances de développement sont gardées pour `prisma migrate deploy` et le faux Papi.
-- **Front** : aucun test automatisé ; vérifié par le build, le typecheck et la concordance avec les routes de la gateway.
+- **Front** : pas de tests automatisés. Vérifié dans Chromium (piloté par CDP) : les 25 écrans des 7 rôles s'affichent sans erreur JavaScript ni erreur d'API, et le parcours client complet fonctionne (formulaire → réservation → faux Papi → page de retour « Réussi » → réservation Confirmée).
 - **Limite de tentatives de connexion en mémoire** (une seule gateway) ; version Redis décrite en phase 3.
 
 ### Démonstration conseillée (10 minutes)
