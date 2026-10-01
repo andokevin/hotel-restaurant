@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Image d'UN service du monorepo : docker build -f docker/service.Dockerfile --build-arg SERVICE=stock .
 FROM node:24-alpine
 ARG SERVICE
@@ -8,7 +9,9 @@ WORKDIR /app
 # On copie le dépôt (sans node_modules, dist, .env : voir .dockerignore) puis on n'installe
 # que ce dont CE service a besoin (lui + ses dépendances du workspace, ici @hotel/commun).
 COPY . .
-RUN pnpm install --frozen-lockfile --filter "@hotel/${SERVICE}..."
+# Cache pnpm PARTAGÉ entre toutes les images (BuildKit) : chaque paquet n'est téléchargé qu'une fois.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store --filter "@hotel/${SERVICE}..."
 RUN pnpm --filter @hotel/commun build
 
 WORKDIR /app/services/${SERVICE}

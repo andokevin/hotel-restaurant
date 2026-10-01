@@ -95,4 +95,4 @@ export const LIBELLES: Record<string, string> = {
   SITE_WEB: "Site web",
 };
 
-export const libelle = (code: string): string => LIBELLES[code] ?? code;
+export const libelle = (code: string | null): string => (code === null ? "—" : (LIBELLES[code] ?? code));

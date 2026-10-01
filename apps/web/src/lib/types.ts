@@ -96,7 +96,7 @@ export type Paiement = {
   id: string;
   montant: number;
   statut: StatutPaiement;
-  methode: string;
+  methode: string | null; // inconnue tant que Papi n'a pas confirmé
   facture?: { numero: string; statut: StatutFacture } | null;
 };
 
@@ -120,7 +120,7 @@ export type Facture = {
   clotureeLe?: string | null;
   reservationId?: string | null;
   lignes?: LigneFacture[];
-  paiements?: { id: string; montant: number; statut: StatutPaiement; methode: string }[];
+  paiements?: { id: string; montant: number; statut: StatutPaiement; methode: string | null }[];
 };
 
 // --- Ménage ---
