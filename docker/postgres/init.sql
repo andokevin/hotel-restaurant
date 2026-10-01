@@ -8,6 +8,8 @@ CREATE DATABASE facturation_db;
 CREATE DATABASE auth_db;
 CREATE DATABASE menage_db;
 CREATE DATABASE stock_db;
+CREATE DATABASE restaurant_db;
+CREATE DATABASE comptabilite_db;
 
 -- Bases de test (vidées par les tests, jamais utilisées en dev)
 CREATE DATABASE hebergement_test_db;
@@ -15,3 +17,5 @@ CREATE DATABASE facturation_test_db;
 CREATE DATABASE auth_test_db;
 CREATE DATABASE menage_test_db;
 CREATE DATABASE stock_test_db;
+CREATE DATABASE restaurant_test_db;
+CREATE DATABASE comptabilite_test_db;

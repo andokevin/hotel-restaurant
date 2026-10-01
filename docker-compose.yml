@@ -1,27 +1,155 @@
-  services:
-    postgres:
-      image: postgres:17-alpine
-      restart: always
-      environment:
-        POSTGRES_USER: hotel
-        POSTGRES_PASSWORD: hotel
-        POSTGRES_DB: postgres
-      ports:
-        - "5432:5432"
-      volumes:
-         - pg_data:/var/lib/postgresql/data
-         - ./docker/postgres:/docker-entrypoint-initdb.d
-      healthcheck:
-        test: ["CMD-SHELL", "pg_isready -U hotel"]
-        interval: 5s
-        retries: 10
-    redis:
-     image: redis:7-alpine
-     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
-     ports:
+# Développement : `docker compose up -d`                    → PostgreSQL + Redis seulement
+# Application complète : `docker compose --profile app up -d --build`
+#   (secrets dans le fichier .env à la racine : bash scripts/generer-env-docker.sh)
+x-service: &service
+  profiles: ["app"]
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_started }
+
+x-env-commun: &env-commun
+  NODE_ENV: production
+  CLE_INTERNE: ${CLE_INTERNE:-}
+  REDIS_URL: redis://redis:6379
+  BULLMQ_PREFIXE: hotel
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: hotel
+      POSTGRES_PASSWORD: hotel
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotel"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # noeviction : Redis plein refuse d'écrire plutôt que d'effacer des jobs BullMQ en silence
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
       - "6381:6379"
-     volumes:
+    volumes:
       - redis_data:/data
-  volumes:
-   pg_data:
-   redis_data:
+
+  # --- Services (réseau interne : aucun port publié, sauf la gateway) ---
+  auth:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: auth } }
+    environment:
+      <<: *env-commun
+      PORT: 3003
+      DATABASE_URL: postgresql://hotel:hotel@postgres:5432/auth_db
+      JWT_CLE_PRIVEE: ${JWT_CLE_PRIVEE:-}
+      COOKIE_CHEMIN: /api/auth
+
+  hebergement:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: hebergement } }
+    environment:
+      <<: *env-commun
+      PORT: 3001
+      DATABASE_URL: postgresql://hotel:hotel@postgres:5432/hebergement_db
+
+  facturation:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: facturation } }
+    environment:
+      <<: *env-commun
+      PORT: 3002
+      DATABASE_URL: postgresql://hotel:hotel@postgres:5432/facturation_db
+      PAPI_BASE_URL: ${PAPI_BASE_URL:-http://faux-papi:4010}
+      PAPI_API_KEY: ${PAPI_API_KEY:-cle-faux-papi}
+      PAPI_MODE_TEST: "true"
+      # Où Papi envoie ses notifications : la gateway (URL du tunnel cloudflared avec le vrai Papi)
+      PUBLIC_URL: ${PUBLIC_URL:-http://api-gateway:3000}
+      FRONT_URL: http://localhost:8080
+      HEBERGEMENT_URL: http://hebergement:3001
+
+  menage:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: menage } }
+    environment:
+      <<: *env-commun
+      PORT: 3004
+      DATABASE_URL: postgresql://hotel:hotel@postgres:5432/menage_db
+      AUTH_URL: http://auth:3003
+
+  stock:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: stock } }
+    environment:
+      <<: *env-commun
+      PORT: 3005
+      DATABASE_URL: postgresql://hotel:hotel@postgres:5432/stock_db
+
+  restaurant:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: restaurant } }
+    environment:
+      <<: *env-commun
+      PORT: 3006
+      DATABASE_URL: postgresql://hotel:hotel@postgres:5432/restaurant_db
+      HEBERGEMENT_URL: http://hebergement:3001
+      FACTURATION_URL: http://facturation:3002
+
+  comptabilite:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: comptabilite } }
+    environment:
+      <<: *env-commun
+      PORT: 3007
+      DATABASE_URL: postgresql://hotel:hotel@postgres:5432/comptabilite_db
+      HEBERGEMENT_URL: http://hebergement:3001
+      STOCK_URL: http://stock:3005
+
+  # --- Point d'entrée unique ---
+  api-gateway:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: api-gateway } }
+    depends_on: [auth, hebergement, facturation, menage, stock, restaurant, comptabilite]
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      CLE_INTERNE: ${CLE_INTERNE:-}
+      JWT_CLE_PUBLIQUE: ${JWT_CLE_PUBLIQUE:-}
+      FRONT_URL: http://localhost:8080
+      AUTH_URL: http://auth:3003
+      HEBERGEMENT_URL: http://hebergement:3001
+      FACTURATION_URL: http://facturation:3002
+      MENAGE_URL: http://menage:3004
+      STOCK_URL: http://stock:3005
+      RESTAURANT_URL: http://restaurant:3006
+      COMPTABILITE_URL: http://comptabilite:3007
+
+  web:
+    profiles: ["app"]
+    restart: unless-stopped
+    build: { context: ., dockerfile: docker/web.Dockerfile }
+    depends_on: [api-gateway]
+    ports:
+      - "8080:80"
+
+  # Faux Papi pour la démonstration (voir services/facturation/scripts/faux-papi.ts)
+  faux-papi:
+    <<: *service
+    build: { context: ., dockerfile: docker/service.Dockerfile, args: { SERVICE: facturation } }
+    command: ["pnpm", "exec", "tsx", "scripts/faux-papi.ts"]
+    depends_on: []
+    ports:
+      - "4010:4010"
+
+volumes:
+  pg_data:
+  redis_data:

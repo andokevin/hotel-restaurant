@@ -1359,3 +1359,86 @@ La notification arrive sur `https://xxx.trycloudflare.com/api/paiements/notifica
 ### Question ouverte (à trancher)
 
 **Envoi du reçu par email** : les données sont prêtes (email obligatoire, facture complète, événements `paiement.recu` et `facture.cloturee`). L'envoi relève du service notification dans le modèle (V2). Veux-tu l'envoyer **dès la V1** ? Si oui, avec quel fournisseur (SMTP de ton hébergeur, Brevo, Resend…), et depuis quelle adresse ?
+
+---
+
+## Journal — Phase 5 : ménage + stock
+
+> Rythme accéléré à la demande d'Ando (projet à rendre le soir même) : tests limités aux règles critiques, journal plus court.
+
+**menage** (3004) :
+- `sejour.commence` crée une tâche **QUOTIDIEN** par jour strictement entre l'arrivée et le départ ; `sejour.termine` crée la tâche **DEPART** et supprime les ménages quotidiens encore à faire (départ anticipé).
+- Résultat : **une tâche par nuitée**. Chaque tâche remplace les articles d'une nuit, ce qui colle exactement à la règle « 1 nuitée = 1 gel douche, 1 papier, 1 paire de pantoufles, 1 brosse à dents ».
+- `UNIQUE (reservation_id, type, date_prevue)` + `createMany({ skipDuplicates: true })` : un événement rejoué ne crée rien deux fois.
+- Démarrer : `updateMany({ where: { id, statut: "A_FAIRE" } })`. Deux employées cliquent en même temps, **une seule** obtient la tâche (409 pour l'autre). Terminer : seulement par l'employée assignée (`where: { statut: "EN_COURS", assigneeId }`).
+- Terminer publie `menage.termine` avec les articles **réellement** remplacés, qui remplace la tâche BPMN « Notifier la réceptionniste ». hebergement remet la chambre PROPRE, stock sort les articles.
+- `assignee_nom` : snapshot lu par REST dans auth (`/interne/utilisateurs/:id`). Si auth ne répond pas, la tâche démarre quand même, sans nom.
+
+**stock** (3005) :
+- Décrément **atomique** (`decrement` → `SET quantite = quantite - n`) et `CHECK (quantite >= 0)` : le stock ne passe jamais sous zéro, même avec 20 ménages terminés au même instant (testé).
+- Idempotence **sans** table `evenement_traite` : la contrainte du modèle `UNIQUE (reference_id, article_id)` suffit (une tâche ne sort qu'une fois chaque article).
+- **Une transaction par article** : un gel douche en rupture n'empêche pas d'enregistrer les pantoufles. La rupture est journalisée (`error`) : le stock en base et le stock réel divergent, et le contrôle de 23 h le fera apparaître.
+- `stock.seuil_atteint` est émis **au franchissement** du seuil (pas à chaque sortie). Comme le décrément est atomique, « avant = après + quantité » se calcule sans relire.
+
+> **À refaire de mémoire — phase 5**
+> 1. `createMany({ data, skipDuplicates: true })` + `@@unique([reservationId, type, datePrevue])` pour un consommateur idempotent.
+> 2. `update({ data: { quantite: { decrement: n } } })` + `CHECK (quantite >= 0)` : jamais « lire puis écrire ».
+> 3. Franchissement de seuil : `avant = apres + n ; if (avant > seuil && apres <= seuil) alerte`.
+> 4. Prise de tâche concurrente : `updateMany({ where: { id, statut: "A_FAIRE" } })` puis `count === 0` → 409.
+
+---
+
+## Journal — Phase 6 : restaurant (+ lane Communication)
+
+- **Prix côté serveur** : la commande ne contient que `{ platId, quantite }`. Le prix est lu dans `plat` et **copié** dans `ligne_commande.prix_unitaire` (snapshot : un changement de carte ne modifie pas le passé).
+- **« Ajouter à la facture de la chambre ? »**
+  - **Oui** : `POST /commandes/:id/imputer`. D'abord un appel **synchrone** à hebergement (« qui occupe la chambre 204 ? »), car le serveur attend la réponse. Puis `consommation.imputee` en outbox, **asynchrone**. facturation ajoute une ligne `origine = RESTAURANT` sur la facture du séjour : l'argent est encaissé par l'hôtel mais appartient au restaurant.
+  - **Non** : `POST /commandes/:id/facturer` appelle la route **interne** de facturation (`/interne/factures/restaurant`, absente de la gateway : le navigateur ne peut pas fixer les prix). La facture restaurant est **clôturée automatiquement** dès qu'elle est soldée.
+  - Une commande imputée ne peut plus être facturée, et inversement (409) : la même somme n'est jamais réclamée deux fois.
+- `paiement.recu` (avec `commandeId`) → commande `PAYEE`.
+- **Lane Communication** : publier / dépublier un menu (seuls les menus actifs et les plats disponibles sont publics), texte Facebook prêt à copier (décision D7).
+
+> **À refaire de mémoire — phase 6**
+> 1. Snapshot de prix : `lignes: { create: plats.map(p => ({ platId: p.id, platNom, prixUnitaire: p.prix, quantite })) }`.
+> 2. Synchrone puis asynchrone : `await sejourEnCours(chambre)` (REST) **avant** la transaction, puis `ecrireEvenement(tx, "consommation.imputee", …)` **dans** la transaction.
+> 3. Machine à états de la préparation : `TRANSITIONS[de].includes(vers)`.
+
+---
+
+## Journal — Phase 7 : comptabilité
+
+- **Modèle de lecture** : tout est recalculable. Relancer la génération d'un jour écrase le résultat (`upsert`).
+- `facture.cloturee` : **copie** (BPMN « Copie de facture », table `copie_facture` ajoutée au modèle) et, pour un **séjour** avec des lignes RESTAURANT, un **reversement** « à reverser ». Une facture RESTAURANT a été encaissée au restaurant : rien à reverser.
+- **Job répétable** `pattern: "0 23 * * *", tz: "Indian/Antananarivo"` (BPMN « Chaque jour à 23 h 00 »). Il récupère les nuitées vendues (REST hebergement), les sorties MENAGE du jour (REST stock) et les copies de factures du jour (sa propre base).
+- **Contrôle du stock** : `attendue = nuitées de la VEILLE × consommation_par_nuitee`, car les articles remplacés **aujourd'hui** par le ménage ont servi **la nuit dernière**. `écart = réelle − attendue`. Un écart non nul est journalisé « à signaler à la direction » et affiché en rouge dans le front.
+- Écart assumé avec le modèle : `ecart` est calculé par le code et stocké, pas déclaré comme colonne générée PostgreSQL. Prisma ne gère pas bien ces colonnes, et le temps manquait pour le faire proprement.
+
+> **À refaire de mémoire — phase 7**
+> 1. Job répétable dans un fuseau : `file.upsertJobScheduler("id", { pattern: "0 23 * * *", tz: "Indian/Antananarivo" }, { name })`.
+> 2. Bornes d'une journée à Madagascar : `new Date(\`${jour}T00:00:00+03:00\`)` → `{ gte: debut, lt: debut + 24 h }`.
+> 3. Modèle de lecture recalculable : `upsert` des statistiques + `deleteMany` puis `createMany` des contrôles, dans une transaction.
+
+---
+
+## Journal — Phases 8 et 9 : front et livraison
+
+**Front** ([apps/web](../apps/web/README.md)), construit en parallèle par un agent dans un worktree git, puis fusionné :
+- React 19, React Router, TanStack Query, react-hook-form + Zod 4, Tailwind 4, Vite. Un espace par rôle et le parcours client (réservation → paiement Papi → page de retour qui **interroge** le statut).
+- Jeton d'accès **en mémoire** ; sur un 401, **un seul** rafraîchissement partagé, puis la requête est rejouée. Ajout de l'agent : un verrou entre onglets (Web Locks API), pour que deux onglets ne rejouent pas le même cookie. Sinon, la détection de vol d'auth coupait toutes les sessions (limite signalée en phase 2).
+- `Idempotency-Key` générée une fois par formulaire de réservation.
+
+**Livraison** :
+- `docker/service.Dockerfile` : **une** image générique pour les 8 services (`--build-arg SERVICE=…`). Au démarrage : `prisma migrate deploy` (jamais `migrate dev`), puis `node dist/server.js`.
+- `docker-compose.yml` : profil `app` pour l'application complète. Sans profil, seuls PostgreSQL et Redis démarrent (usage de développement inchangé). Seuls la gateway (3000), le front (8080) et le faux Papi (4010) publient un port.
+- `scripts/generer-env-docker.sh` (secrets, sans jamais écraser un `.env` existant), `scripts/seed.sh` (données réalistes **par l'API** : les règles métier s'appliquent), [README](../README.md) en 5 commandes.
+
+**Pièges de la livraison** :
+1. `prisma.config.ts` appelait `process.loadEnvFile()`, qui **lève une erreur** s'il n'y a pas de `.env` (cas d'un conteneur) : entouré d'un `try/catch`.
+2. `prisma generate` lit la config, qui exige `DATABASE_URL`, même pour générer le client : URL factice **à la construction seulement**.
+3. `${VAR:?message}` dans le compose fait échouer **toutes** les commandes compose (même `exec postgres`) tant que le `.env` racine n'existe pas : remplacé par `${VAR:-}`. C'est la validation Zod de chaque service qui refuse alors de démarrer, avec un message clair.
+4. Images d'environ 900 Mo : elles gardent les dépendances de développement (Prisma CLI pour `migrate deploy`, tsx pour le faux Papi). `pnpm deploy --prod` en multi-étapes les réduirait ; c'est hors du temps disponible.
+
+> **À refaire de mémoire — phases 8 et 9**
+> 1. Rafraîchissement unique : `let enCours: Promise<string> | null = null; const rafraichir = () => (enCours ??= appelRafraichir().finally(() => (enCours = null)));`
+> 2. Image d'un service du monorepo : `pnpm install --frozen-lockfile --filter "@hotel/${SERVICE}..."` (le service **et** ses dépendances du workspace).
+> 3. Au démarrage d'un conteneur : `prisma migrate deploy && node dist/server.js`.
