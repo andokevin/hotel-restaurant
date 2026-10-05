@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import express from "express";
 import helmet from "helmet";
 import { creerGestionnaireErreurs, exigerCleInterne, journalRequetes } from "@hotel/commun";
@@ -15,6 +16,13 @@ app.use(journalRequetes(logger));
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "hebergement" });
+});
+
+// Lit services/hebergement/package.json une seule fois, au démarrage.
+const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+
+app.get("/version", (_req, res) => {
+  res.json({ version, service: "hebergement" });
 });
 
 // Tout le reste ne répond qu'à la gateway ou aux autres services : eux seuls connaissent la clé interne.
