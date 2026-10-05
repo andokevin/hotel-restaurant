@@ -37,6 +37,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: always
     # noeviction : Redis plein refuse d'écrire plutôt que d'effacer des jobs BullMQ en silence
     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     ports:
