@@ -49,6 +49,7 @@ export type Categorie = {
   description?: TexteTraduit | string | null;
   capacite: number;
   tarifNuit: number;
+  _count?: { chambres: number };
 };
 
 export type EtatMenage = "PROPRE" | "SALE" | "EN_NETTOYAGE";

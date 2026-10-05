@@ -87,6 +87,7 @@ export function Categories() {
                   <th className={classeTh}>Libellé</th>
                   <th className={`${classeTh} text-right`}>Capacité</th>
                   <th className={`${classeTh} text-right`}>Tarif / nuit</th>
+                  <th className={`${classeTh} text-right`}>Chambres</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -96,6 +97,7 @@ export function Categories() {
                     <td className={classeTd}>{texte(c.libelle)}</td>
                     <td className={`${classeTd} text-right`}>{c.capacite}</td>
                     <td className={`${classeTd} text-right`}>{ariary(c.tarifNuit)}</td>
+                    <td className={`${classeTd} text-right`}>{c._count?.chambres ?? 0}</td>
                   </tr>
                 ))}
               </tbody>

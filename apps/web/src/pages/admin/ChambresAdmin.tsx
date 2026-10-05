@@ -43,6 +43,7 @@ export function ChambresAdmin() {
     mutationFn: (d: Formulaire) => api.post<Chambre>("/chambres", d),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["chambres"] });
+      void queryClient.invalidateQueries({ queryKey: ["categories"] });
       reset();
     },
   });
