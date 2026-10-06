@@ -11,7 +11,9 @@
     "dev:auth": "pnpm --filter @hotel/auth dev",
     "dev:hebergement": "pnpm --filter @hotel/hebergement dev",
     "test": "pnpm -r --if-present run test",
-    "typecheck": "pnpm -r --if-present run typecheck"
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
   },
   "keywords": [],
   "author": "",
@@ -24,5 +26,8 @@
     }
   },
   "packageManager": "pnpm@12.5.1",
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@changesets/cli": "^3.0.3"
+  }
 }
