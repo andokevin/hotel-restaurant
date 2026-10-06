@@ -3,6 +3,7 @@
 Projet de cours : le processus BPMN d'un hôtel-restaurant à Madagascar (réservation, paiement
 Papi.mg, séjour, ménage, stock, restaurant, comptabilité), découpé en services indépendants.
 
+- **Installation et guide d'utilisation** (Docker, migrations, seed, comptes de test, guide par rôle) : [GUIDE-INSTALLATION-ET-UTILISATION.md](GUIDE-INSTALLATION-ET-UTILISATION.md)
 - **Guide complet** (architecture, choix techniques, journal de chaque phase, questions d'entretien) : [docs/GUIDE.md](docs/GUIDE.md)
 - **Étude du code** (chaque fonctionnalité : fichiers, fonctions, variables, logique, techniques) : [docs/ETUDE-DU-CODE.md](docs/ETUDE-DU-CODE.md)
 - **Front** : [apps/web/README.md](apps/web/README.md)
