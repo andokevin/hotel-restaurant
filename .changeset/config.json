@@ -5,7 +5,7 @@
   "access": "restricted",
   "format": "auto",
   "changelog": [
-    "@changesets/changelog-github",
+    "@changesets/cli/changelog",
     {
       "repo": "andokevin/hotel-restaurant"
     }
