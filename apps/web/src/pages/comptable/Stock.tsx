@@ -70,10 +70,10 @@ export function Stock({ peutCreer = false }: { peutCreer?: boolean }) {
                     <td className={`${classeTd} text-right`}>{a.consommationParNuitee}</td>
                     <td className={classeTd}>
                       <div className="flex flex-wrap gap-1">
-                        <Bouton className="px-2 py-1 text-xs" onClick={() => setMouvementPour(a)}>
+                        <Bouton taille="petit" onClick={() => setMouvementPour(a)}>
                           Mouvement
                         </Bouton>
-                        <Bouton variante="secondaire" className="px-2 py-1 text-xs" onClick={() => setHistoriquePour(a)}>
+                        <Bouton variante="secondaire" taille="petit" onClick={() => setHistoriquePour(a)}>
                           Historique
                         </Bouton>
                       </div>

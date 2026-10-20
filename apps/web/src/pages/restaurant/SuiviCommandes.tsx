@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { DetailFacture } from "../../components/DetailFacture";
 import { FormulaireEncaissement } from "../../components/Encaissement";
-import { Alerte, Badge, Bouton, Carte, Chargement, Donnees, MessageErreur, Modale, TitrePage, classeInput } from "../../components/ui";
+import { Alerte, Badge, Bouton, Carte, Chargement, Donnees, MessageErreur, Modale, ModaleConfirmation, TitrePage, classeInput } from "../../components/ui";
 import { ApiError, api, messageErreur, qs } from "../../lib/api";
 import { ariary, libelle } from "../../lib/format";
 import type { Commande, Facture, StatutCommande } from "../../lib/types";
@@ -60,6 +60,7 @@ function CarteCommande({ commande, onFacture }: { commande: Commande; onFacture:
   const queryClient = useQueryClient();
   const [chambre, setChambre] = useState("");
   const [imputation, setImputation] = useState(false);
+  const [annulation, setAnnulation] = useState(false);
 
   const rafraichir = () => {
     void queryClient.invalidateQueries({ queryKey: ["commandes"] });
@@ -122,31 +123,45 @@ function CarteCommande({ commande, onFacture }: { commande: Commande; onFacture:
 
       <div className="mt-3 flex flex-wrap gap-2">
         {suivant && (
-          <Bouton className="px-2 py-1 text-xs" enCours={changerStatut.isPending} onClick={() => changerStatut.mutate(suivant.statut)}>
+          <Bouton taille="petit" className="flex-1 sm:flex-none" enCours={changerStatut.isPending} onClick={() => changerStatut.mutate(suivant.statut)}>
             {suivant.action}
-          </Bouton>
-        )}
-        {(c.statut === "RECUE" || c.statut === "EN_PREPARATION") && (
-          <Bouton
-            variante="secondaire"
-            className="px-2 py-1 text-xs"
-            enCours={changerStatut.isPending}
-            onClick={() => window.confirm(`Annuler la commande ${c.reference} ?`) && changerStatut.mutate("ANNULEE")}
-          >
-            Annuler
           </Bouton>
         )}
         {c.statutPaiement === "NON_PAYEE" && c.statut !== "ANNULEE" && (
           <>
-            <Bouton variante="secondaire" className="px-2 py-1 text-xs" onClick={() => setImputation((v) => !v)}>
+            <Bouton variante="secondaire" taille="petit" aria-expanded={imputation} onClick={() => setImputation((v) => !v)}>
               Imputer à une chambre
             </Bouton>
-            <Bouton variante="secondaire" className="px-2 py-1 text-xs" enCours={facturer.isPending} onClick={() => facturer.mutate()}>
+            <Bouton variante="secondaire" taille="petit" enCours={facturer.isPending} onClick={() => facturer.mutate()}>
               Facturer et encaisser
             </Bouton>
           </>
         )}
+        {(c.statut === "RECUE" || c.statut === "EN_PREPARATION") && (
+          <Bouton variante="discretDanger" taille="petit" className="ml-auto" onClick={() => setAnnulation(true)}>
+            Annuler
+          </Bouton>
+        )}
       </div>
+
+      {annulation && (
+        <ModaleConfirmation
+          titre={`Annuler la commande ${c.reference} ?`}
+          libelleConfirmer="Oui, annuler la commande"
+          variante="danger"
+          enCours={changerStatut.isPending}
+          erreur={changerStatut.error}
+          onConfirmer={() => changerStatut.mutate("ANNULEE", { onSuccess: () => setAnnulation(false) })}
+          onAnnuler={() => {
+            setAnnulation(false);
+            changerStatut.reset();
+          }}
+        >
+          <p>
+            {c.lignes.length} plat(s) pour {ariary(c.montantTotal)}. La cuisine ne la verra plus dans les commandes à préparer.
+          </p>
+        </ModaleConfirmation>
+      )}
 
       {imputation && (
         <form
@@ -157,7 +172,7 @@ function CarteCommande({ commande, onFacture }: { commande: Commande; onFacture:
           }}
         >
           <input className={`${classeInput} w-32`} placeholder="N° chambre" value={chambre} onChange={(e) => setChambre(e.target.value)} aria-label="Numéro de chambre" />
-          <Bouton type="submit" className="px-2 py-1 text-xs" disabled={!chambre.trim()} enCours={imputer.isPending}>
+          <Bouton type="submit" taille="petit" disabled={!chambre.trim()} enCours={imputer.isPending}>
             Ajouter à la facture de la chambre
           </Bouton>
         </form>

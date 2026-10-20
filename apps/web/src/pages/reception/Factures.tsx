@@ -89,7 +89,7 @@ export function Factures() {
                       <Badge code={f.statut} />
                     </td>
                     <td className={classeTd}>
-                      <Bouton variante="secondaire" className="px-2 py-1 text-xs" onClick={() => setOuverte(f.id)}>
+                      <Bouton variante="secondaire" taille="petit" onClick={() => setOuverte(f.id)}>
                         Ouvrir
                       </Bouton>
                     </td>

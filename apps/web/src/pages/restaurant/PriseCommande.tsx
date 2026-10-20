@@ -33,6 +33,7 @@ export function PriseCommande() {
       return suivant;
     });
 
+  const quantiteDe = (platId: string) => panier[platId] ?? 0;
   const lignes = Object.entries(panier).map(([platId, quantite]) => ({ platId, quantite }));
   const estimation = lignes.reduce((total, l) => total + (plats.get(l.platId)?.prix ?? 0) * l.quantite, 0);
 
@@ -55,7 +56,7 @@ export function PriseCommande() {
 
   return (
     <div>
-      <TitrePage>Prise de commande</TitrePage>
+      <TitrePage sousTitre="Touchez « + Ajouter » sur chaque plat, puis envoyez la commande à la cuisine.">Prise de commande</TitrePage>
       {derniere && (
         <div className="mb-4">
           <Alerte type="succes">
@@ -77,14 +78,19 @@ export function PriseCommande() {
                       {m.plats
                         .filter((p) => p.disponible)
                         .map((p) => (
-                          <li key={p.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                          <li key={p.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                             <div>
                               <span className="font-medium">{texte(p.nom)}</span>
                               <span className="ml-2 text-xs text-slate-500">{libelle(p.categorie)}</span>
-                              <span className="block text-slate-600">{ariary(p.prix)}</span>
+                              <span className="block font-semibold text-emerald-800">{ariary(p.prix)}</span>
                             </div>
-                            <Bouton variante="secondaire" className="px-2 py-1" onClick={() => changerQuantite(p.id, 1)}>
+                            <Bouton variante="secondaire" taille="petit" onClick={() => changerQuantite(p.id, 1)} aria-label={`Ajouter ${texte(p.nom)}`}>
                               + Ajouter
+                              {quantiteDe(p.id) > 0 && (
+                                <span className="rounded-full bg-emerald-700 px-2 text-xs text-white" aria-hidden>
+                                  {quantiteDe(p.id)}
+                                </span>
+                              )}
                             </Bouton>
                           </li>
                         ))}
@@ -97,7 +103,7 @@ export function PriseCommande() {
           </Donnees>
         </div>
 
-        <Carte titre="Panier" className="h-fit lg:sticky lg:top-4">
+        <Carte titre={`Panier${lignes.length ? ` (${lignes.reduce((n, l) => n + l.quantite, 0)})` : ""}`} className="h-fit lg:sticky lg:top-32">
           {lignes.length === 0 ? (
             <p className="text-sm text-slate-500">Le panier est vide.</p>
           ) : (
@@ -108,11 +114,13 @@ export function PriseCommande() {
                   <li key={l.platId} className="flex items-center justify-between gap-2 py-2">
                     <span className="flex-1">{p ? texte(p.nom) : "Plat"}</span>
                     <div className="flex items-center gap-1">
-                      <Bouton variante="secondaire" className="h-7 w-7 p-0" onClick={() => changerQuantite(l.platId, -1)} aria-label="Retirer un">
+                      <Bouton variante="secondaire" taille="icone" onClick={() => changerQuantite(l.platId, -1)} aria-label="Retirer un">
                         −
                       </Bouton>
-                      <span className="w-6 text-center">{l.quantite}</span>
-                      <Bouton variante="secondaire" className="h-7 w-7 p-0" onClick={() => changerQuantite(l.platId, 1)} aria-label="Ajouter un">
+                      <span className="w-7 text-center font-semibold" aria-live="polite">
+                        {l.quantite}
+                      </span>
+                      <Bouton variante="secondaire" taille="icone" onClick={() => changerQuantite(l.platId, 1)} aria-label="Ajouter un">
                         +
                       </Bouton>
                     </div>
