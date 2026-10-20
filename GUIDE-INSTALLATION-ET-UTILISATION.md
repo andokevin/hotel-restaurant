@@ -157,12 +157,11 @@ pnpm -r --filter "./services/*" --filter "!@hotel/api-gateway" exec prisma migra
 
 ### Étape 4 — Démarrer
 
-Dans trois terminaux :
+Dans deux terminaux :
 
 ```bash
 pnpm dev                                    # terminal 1 : les 8 services et leurs workers
 pnpm --filter @hotel/facturation faux-papi  # terminal 2 : le faux Papi (port 4010)
-pnpm --filter @hotel/web dev                # terminal 3 : l'interface sur http://localhost:5173
 ```
 
 ### Étape 5 — Administrateur et données de démonstration

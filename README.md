@@ -66,8 +66,7 @@ pnpm install && pnpm build:commun          # build:commun après chaque modifica
 # clés JWT : pnpm --filter @hotel/auth generer-cles)
 pnpm -r --filter "./services/*" --filter "!@hotel/api-gateway" exec prisma migrate deploy
 pnpm test                                  # tests de tous les services (bases *_test_db, Redis préfixe hotel-test)
-pnpm dev                                   # tous les services + workers
-pnpm --filter @hotel/web dev               # front sur http://localhost:5173 (proxy /api → :3000)
+pnpm dev                                   # tous les services + workers + front sur http://localhost:5173 (proxy /api → :3000)
 ```
 
 Scénarios de bout en bout (terminal, via la gateway) : `scripts/scenario-phase2.sh` à `scenario-phase4.sh`.

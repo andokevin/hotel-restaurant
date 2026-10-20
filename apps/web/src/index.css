@@ -1,8 +1,42 @@
 @import "tailwindcss";
 
+/* Jetons de design (v1.1) : émeraude (marque), sable (fonds chaleureux), terre cuite (accent, appels à l'action).
+   Tailwind 4 génère les classes bg-sable-50, text-terre-700… à partir de ces variables. */
+@theme {
+  --color-sable-50: #fbf8f2;
+  --color-sable-100: #f5eee1;
+  --color-sable-200: #ebdfc8;
+  --color-sable-300: #dcc8a3;
+  --color-sable-700: #7a6440;
+
+  --color-terre-50: #fff5ed;
+  --color-terre-100: #ffe6d3;
+  --color-terre-600: #c2410c;
+  --color-terre-700: #9a3412;
+  --color-terre-800: #7c2d12;
+
+  --font-titre: "Georgia", "Cambria", "Times New Roman", serif;
+}
+
 /* Styles de base partagés ; tout le reste se fait avec les classes Tailwind. */
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-800 antialiased;
+    @apply bg-sable-50 text-slate-800 antialiased;
+  }
+  h1,
+  h2 {
+    font-family: var(--font-titre);
+  }
+  /* Focus clavier toujours visible (accessibilité), sans gêner les clics à la souris. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-emerald-600;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

@@ -4,9 +4,9 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "../../auth/AuthContext";
-import { Alerte, Badge, Bouton, Carte, Champ, Donnees, Modale, TitrePage, classeInput } from "../../components/ui";
+import { Alerte, Badge, Bouton, Carte, Champ, Donnees, Modale, Pastilles, TitrePage, classeInput } from "../../components/ui";
 import { api, messageErreur, qs } from "../../lib/api";
-import { aujourdhui, dateHeure, libelle, texte } from "../../lib/format";
+import { ajouterJours, aujourdhui, dateCourte, dateHeure, libelle, texte } from "../../lib/format";
 import { useArticles } from "../../lib/requetes";
 import type { StatutTache, Tache } from "../../lib/types";
 import { entierPositifOuNul } from "../../lib/validation";
@@ -43,25 +43,49 @@ export function Taches() {
   // Seule une femme de ménage peut démarrer / terminer une tâche (règle de la gateway).
   const peutAgir = utilisateur?.role === "FEMME_MENAGE";
 
+  // Ordre d'affichage : d'abord ce qui reste à faire, les tâches terminées à la fin.
+  const ORDRE: Record<StatutTache, number> = { EN_COURS: 0, A_FAIRE: 1, TERMINEE: 2 };
+  const restantes = taches.data?.filter((t) => t.statut !== "TERMINEE").length ?? 0;
+  const estAujourdhui = date === aujourdhui();
+
   return (
     <div>
-      <TitrePage>Tâches de ménage</TitrePage>
-      <div className="mb-4 flex flex-wrap gap-3">
-        <input type="date" className={`${classeInput} max-w-xs`} value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date" />
-        <select
-          className={`${classeInput} max-w-xs`}
-          value={statut}
-          onChange={(e) => {
-            const v = e.target.value;
-            setStatut(v === "A_FAIRE" || v === "EN_COURS" || v === "TERMINEE" ? v : "");
-          }}
-          aria-label="Filtrer par statut"
-        >
-          <option value="">Tous les statuts</option>
-          <option value="A_FAIRE">À faire</option>
-          <option value="EN_COURS">En cours</option>
-          <option value="TERMINEE">Terminée</option>
-        </select>
+      <TitrePage
+        sousTitre={
+          taches.data
+            ? `${restantes} chambre(s) à faire sur ${taches.data.length} ${estAujourdhui ? "aujourd'hui" : `le ${dateCourte(date)}`}`
+            : undefined
+        }
+      >
+        Tâches de ménage
+      </TitrePage>
+      <div className="mb-4 space-y-3">
+        {/* Changer de jour en un geste, sans ouvrir le calendrier */}
+        <div className="flex items-center gap-2">
+          <Bouton variante="secondaire" taille="icone" onClick={() => setDate(ajouterJours(date, -1))} aria-label="Jour précédent">
+            ‹
+          </Bouton>
+          <input type="date" className={`${classeInput} max-w-[12rem] text-center`} value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date" />
+          <Bouton variante="secondaire" taille="icone" onClick={() => setDate(ajouterJours(date, 1))} aria-label="Jour suivant">
+            ›
+          </Bouton>
+          {!estAujourdhui && (
+            <Bouton variante="discret" taille="petit" onClick={() => setDate(aujourdhui())}>
+              Aujourd'hui
+            </Bouton>
+          )}
+        </div>
+        <Pastilles<StatutTache | "">
+          label="Filtrer par statut"
+          valeur={statut}
+          onChange={setStatut}
+          options={[
+            { valeur: "", libelle: "Toutes" },
+            { valeur: "A_FAIRE", libelle: "À faire" },
+            { valeur: "EN_COURS", libelle: "En cours" },
+            { valeur: "TERMINEE", libelle: "Terminées" },
+          ]}
+        />
       </div>
 
       {demarrer.isError && (
@@ -73,11 +97,11 @@ export function Taches() {
       <Donnees requete={taches} texteVide="Aucune tâche pour ce jour.">
         {(liste) => (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {liste.map((t) => (
-              <Carte key={t.id}>
+            {[...liste].sort((a, b) => ORDRE[a.statut] - ORDRE[b.statut]).map((t) => (
+              <Carte key={t.id} className={t.statut === "TERMINEE" ? "opacity-70" : t.statut === "EN_COURS" ? "border-l-4 border-l-indigo-500" : ""}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="text-xl font-bold">Chambre {t.chambreNumero}</div>
+                    <div className="font-titre text-2xl font-bold">Chambre {t.chambreNumero}</div>
                     <div className="text-sm text-slate-500">Ménage {libelle(t.type).toLowerCase()}</div>
                   </div>
                   <Badge code={t.statut} />
@@ -89,13 +113,17 @@ export function Taches() {
                   {t.remarques && <div className="italic">« {t.remarques} »</div>}
                 </div>
                 {peutAgir && (
-                  <div className="mt-3">
+                  <div className="mt-4">
                     {t.statut === "A_FAIRE" && (
-                      <Bouton enCours={demarrer.isPending && demarrer.variables === t.id} onClick={() => demarrer.mutate(t.id)}>
-                        Démarrer
+                      <Bouton className="w-full" enCours={demarrer.isPending && demarrer.variables === t.id} onClick={() => demarrer.mutate(t.id)}>
+                        Démarrer le ménage
                       </Bouton>
                     )}
-                    {t.statut === "EN_COURS" && <Bouton onClick={() => setATerminer(t)}>Terminer</Bouton>}
+                    {t.statut === "EN_COURS" && (
+                      <Bouton variante="accent" className="w-full" onClick={() => setATerminer(t)}>
+                        Terminer : chambre propre
+                      </Bouton>
+                    )}
                   </div>
                 )}
               </Carte>
@@ -151,7 +179,7 @@ function ModaleTerminer({ tache, onFermer }: { tache: Tache; onFermer: () => voi
         <div className="grid grid-cols-2 gap-3">
           {CODES_ARTICLES.map((code, i) => (
             <Champ key={code} label={libelleArticle(code)} erreur={formState.errors.articles?.[i]?.quantite?.message}>
-              <input type="number" min={0} step={1} className={classeInput} {...register(`articles.${i}.quantite`, { valueAsNumber: true })} />
+              <input type="number" inputMode="numeric" min={0} step={1} className={classeInput} {...register(`articles.${i}.quantite`, { valueAsNumber: true })} />
             </Champ>
           ))}
         </div>
@@ -159,7 +187,7 @@ function ModaleTerminer({ tache, onFermer }: { tache: Tache; onFermer: () => voi
           <textarea rows={3} className={classeInput} placeholder="Ex. ampoule à changer" {...register("remarques")} />
         </Champ>
         {terminer.isError && <Alerte>{messageErreur(terminer.error)}</Alerte>}
-        <Bouton type="submit" enCours={terminer.isPending}>
+        <Bouton type="submit" className="w-full" enCours={terminer.isPending}>
           Valider : chambre propre
         </Bouton>
       </form>
