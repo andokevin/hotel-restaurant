@@ -142,6 +142,27 @@ describe("Demande de paiement (lien Papi)", () => {
     expect(await prisma.paiement.count()).toBe(1);
   });
 
+  it("lien ancien (client déjà passé sur Papi) : un NOUVEAU lien, l'ancien est remplacé", async () => {
+    // Préparer : une facture et un premier lien de paiement
+    const { evt, paiementId } = await factureEtLien();
+    // Le lien a 2 minutes : le client est sans doute déjà passé sur Papi, ce lien peut être consommé.
+    // On modifie la date en base au lieu d'attendre : le test reste rapide.
+    await prisma.paiement.update({ where: { id: paiementId }, data: { createdAt: new Date(Date.now() - 2 * 60_000) } });
+
+    // Agir : le client clique de nouveau sur « Payer »
+    const encore = await appel("post", "/paiements", CLIENT_A).send({ reservationId: evt.payload.reservationId });
+
+    // Vérifier : un NOUVEAU lien, l'ancien est remplacé, un seul paiement reste en attente
+    expect(encore.status).toBe(201);
+    expect(encore.body.paiementId).not.toBe(paiementId);
+    expect(faux.papi.demandes).toHaveLength(2);
+    expect(await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).toMatchObject({
+      statut: "ECHOUE",
+      erreur: "Remplacé par un nouveau lien de paiement",
+    });
+    expect(await prisma.paiement.count({ where: { statut: "EN_ATTENTE" } })).toBe(1);
+  });
+
   it("deux demandes simultanées : un seul paiement en attente (index unique partiel)", async () => {
     const evt = reservationCreee();
     exposerReservation(evt);
