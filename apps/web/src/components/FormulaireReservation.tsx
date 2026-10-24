@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ApiError, api, messageErreur } from "../lib/api";
@@ -36,12 +36,14 @@ type Formulaire = z.infer<typeof schema>;
 type Props = {
   // true au comptoir (réception) : on peut choisir le canal de la réservation.
   personnel: boolean;
+  //Code de la catégorie à présélectionner (ex. "SUITE_SENIOR"), venu de l'URL ?categorie=
+  categorieInitiale?: string;
   // Coordonnées pré-remplies (ex. le client connecté).
   client?: { nom: string; telephone: string; email: string };
   onCreee: (reservation: Reservation) => void;
 };
 
-export function FormulaireReservation({ personnel, client, onCreee }: Props) {
+export function FormulaireReservation({ categorieInitiale, personnel, client, onCreee }: Props) {
   const categories = useCategories();
   const queryClient = useQueryClient();
 
@@ -49,10 +51,10 @@ export function FormulaireReservation({ personnel, client, onCreee }: Props) {
   // (double clic, réseau lent), le serveur reconnaît la clé et ne crée qu'une réservation.
   const cleIdempotence = useRef(crypto.randomUUID());
 
-  const { register, handleSubmit, watch, formState } = useForm<Formulaire>({
+  const { register, handleSubmit, watch, formState, setValue, getValues } = useForm<Formulaire>({
     resolver: zodResolver(schema),
     defaultValues: {
-      categorieId: "",
+      categorieId:  "",
       dateArrivee: aujourdhui(),
       dateDepart: ajouterJours(aujourdhui(), 1),
       clientNom: client?.nom ?? "",
@@ -63,6 +65,17 @@ export function FormulaireReservation({ personnel, client, onCreee }: Props) {
       canal: personnel ? "RECEPTION" : "SITE_WEB",
     },
   });
+
+    // Présélection depuis l'URL (?categorie=CODE), une fois les catégories chargées.
+  // On n'écrase jamais un choix déjà fait par l'utilisateur.
+
+  useEffect(() => 
+    {
+    if (!categorieInitiale || getValues("categorieId")) return;
+    const c = categories.data?.find((x) => x.code === categorieInitiale);
+    if (c) setValue( "categorieId", c.id );
+  }, [categorieInitiale, categories.data, getValues, setValue]);
+
   const e = formState.errors;
 
   const creation = useMutation({

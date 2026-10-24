@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useAuth } from "../../auth/AuthContext";
 import { BoutonPayer } from "../../components/BoutonPayer";
 import { FormulaireReservation } from "../../components/FormulaireReservation";
@@ -10,6 +10,8 @@ import type { Reservation } from "../../lib/types";
 export function Reserver() {
   const { utilisateur } = useAuth();
   const [creee, setCreee] = useState<Reservation | null>(null);
+  const [searchParams] = useSearchParams();
+  const categorieInitiale =  searchParams.get("categorie") || undefined;
 
   // Étape 2 : la réservation existe, il reste à la payer (30 minutes).
   if (creee) {
@@ -42,6 +44,7 @@ export function Reserver() {
       <TitrePage>Réserver une chambre</TitrePage>
       <Carte>
         <FormulaireReservation
+          categorieInitiale={categorieInitiale}
           personnel={false}
           client={utilisateur ? { nom: utilisateur.nom, telephone: utilisateur.telephone, email: utilisateur.email } : undefined}
           onCreee={setCreee}

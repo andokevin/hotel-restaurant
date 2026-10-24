@@ -30,7 +30,11 @@ export function Accueil() {
   const categories = useCategories();
   const menus = useMenusPublies();
 
-  const lienReserver = utilisateur ? ESPACE_DU_ROLE[utilisateur.role] : "/connexion";
+// Visiteur ou client : on vise directement le formulaire, RouteProtegee gère la connexion.
+const lienReserver = !utilisateur || utilisateur.role === "CLIENT" ? "/client/reserver" : ESPACE_DU_ROLE[utilisateur.role];
+const lienChambre = (code: string) => (lienReserver === "/client/reserver" ? `${lienReserver}?categorie=${code}` : lienReserver);
+
+
   const lienReservations = utilisateur?.role === "CLIENT" ? "/client/reservations" : lienReserver;
 
   return (
@@ -106,7 +110,7 @@ export function Accueil() {
           {(liste) => (
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {liste.map((c) => (
-                <CarteChambre key={c.id} categorie={c} lien={lienReserver} />
+                <CarteChambre key={c.id} categorie={c} lien={lienChambre(c.code)} />
               ))}
             </div>
           )}
