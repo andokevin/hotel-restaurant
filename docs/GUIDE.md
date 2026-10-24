@@ -1307,7 +1307,7 @@ docker compose up -d postgres redis && pnpm build:commun
 pnpm --filter @hotel/facturation exec prisma migrate deploy
 # services/facturation/.env : PAPI_BASE_URL=http://localhost:4010  et  PUBLIC_URL=http://localhost:3000
 pnpm --filter @hotel/facturation faux-papi     # terminal 1
-pnpm dev                                       # terminal 2
+pnpm dev        # terminal 2  les 8 services, leurs workers et l'interface sur http://localhost:5173 
 ADMIN_MOT_DE_PASSE='…' bash scripts/scenario-phase4.sh   # terminal 3
 ```
 Sortie obtenue lors de l'essai (bases de test) :
