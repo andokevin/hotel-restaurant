@@ -163,6 +163,21 @@ describe("Demande de paiement (lien Papi)", () => {
     expect(await prisma.paiement.count({ where: { statut: "EN_ATTENTE" } })).toBe(1);
   });
 
+  it("argent reçu malgré tout sur l'ancien lien : ANOMALIE, rien n'est encaissé", async () => {
+    // Préparer : lien A, vieilli de 2 minutes, puis remplacé par un lien B quand le client reclique.
+    // On garde `demande` (ce que le faux Papi a reçu pour A) pour fabriquer la notification de A.
+    const { evt, demande, paiementId } = await factureEtLien();
+    await prisma.paiement.update({ where: { id: paiementId }, data: { createdAt: new Date(Date.now() - 2 * 60_000) } });
+    await appel("post", "/paiements", CLIENT_A).send({ reservationId: evt.payload.reservationId });
+
+    // Agir : Papi annonce, en retard, que l'ANCIEN lien (A) a été payé (ex. confirmation MVola tardive)
+    await traiterNotification(job(paiementId, notificationReussie(demande)));
+
+    // Vérifier : A passe en ANOMALIE (remboursement manuel) et la facture n'a rien encaissé
+    expect(await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).toMatchObject({ statut: "ANOMALIE" });
+    expect((await facture(evt.payload.reservationId)).montantPaye).toBe(0);
+  });
+
   it("deux demandes simultanées : un seul paiement en attente (index unique partiel)", async () => {
     const evt = reservationCreee();
     exposerReservation(evt);

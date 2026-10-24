@@ -29,6 +29,12 @@ export const FILE_NOTIFICATIONS = "facturation.notifications-papi";
 
 type LienPaiement = { paiementId: string; url: string; montant: number };
 
+// Un lien Papi ne sert qu'à UNE transaction. On ne le renvoie que s'il est tout récent (double clic,
+// bouton « Précédent ») ; au-delà, le client est peut-être déjà passé sur Papi et le lien peut être
+// consommé : on en crée un nouveau. Si l'ancien est payé malgré tout, le worker le classe en ANOMALIE.
+// createdAt et non updatedAt : updatedAt change à chaque modification de la ligne.
+const REUTILISATION_LIEN_MS = 30_000;
+
 export async function demanderPaiement(demande: DemandePaiementDTO, identite: Identite): Promise<LienPaiement> {
   const facture =
     "reservationId" in demande ? await obtenirFactureSejour(demande.reservationId) : await trouverFacture(demande.factureId);
@@ -53,13 +59,14 @@ export async function demanderPaiement(demande: DemandePaiementDTO, identite: Id
   const montant = facture.montantTotal - facture.montantPaye;
   if (montant < MONTANT_MINIMUM) throw RegleMetier(`Montant trop faible pour un paiement en ligne (minimum ${MONTANT_MINIMUM} Ar)`);
 
-  // Un lien déjà en attente pour le même montant : on le renvoie (double clic, retour arrière…).
+  // Un lien en attente, pour le même montant et créé il y a moins de 30 s : on le renvoie (double clic, retour arrière).
   const enAttente = await prisma.paiement.findFirst({ where: { factureId: facture.id, statut: "EN_ATTENTE" } });
-  if (enAttente?.urlPaiement && enAttente.montant === montant) {
+  const recent = enAttente !== null && Date.now() - enAttente.createdAt.getTime() < REUTILISATION_LIEN_MS;
+  if (enAttente?.urlPaiement && enAttente.montant === montant && recent) {
     return { paiementId: enAttente.id, url: enAttente.urlPaiement, montant };
   }
   if (enAttente) {
-    // Montant changé (consommation ajoutée) ou lien jamais obtenu : on le remplace.
+    // Montant changé (consommation ajoutée), lien trop ancien (peut-être consommé sur Papi) ou jamais obtenu : on le remplace.
     await prisma.paiement.updateMany({
       where: { id: enAttente.id, statut: "EN_ATTENTE" },
       data: { statut: "ECHOUE", erreur: "Remplacé par un nouveau lien de paiement" },
