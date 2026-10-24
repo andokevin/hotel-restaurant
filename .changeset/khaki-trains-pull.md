@@ -2,4 +2,5 @@
 "@hotel/facturation": patch
 ---
 
-s'assurer que le paiement necreer pas plusieur lien au double click
+Paiement Papi : un lien en attente n'est réutilisé que pendant 30 s (double clic) ; au-delà, il est remplacé par un nouveau lien, car il a pu être consommé sur Papi.
+
