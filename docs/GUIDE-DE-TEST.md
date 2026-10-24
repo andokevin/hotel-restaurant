@@ -20,7 +20,7 @@ pnpm -r --filter "./services/*" --filter "!@hotel/api-gateway" exec prisma migra
 Puis, dans deux terminaux :
 
 ```bash
-pnpm dev                                    # terminal 1 : les 8 services et leurs workers
+pnpm dev                # terminal 1 :les 8 services, leurs workers et l'interface sur http://localhost:5173
 pnpm --filter @hotel/facturation faux-papi  # terminal 2 : faux Papi (port 4010) — inutile avec le vrai Papi
 ```
 
