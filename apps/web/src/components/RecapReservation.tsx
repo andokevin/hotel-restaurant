@@ -59,10 +59,17 @@ export function RecapReservation({ reservation }: { reservation: Reservation }) 
             {r.nuitees.map((n) => (
               <li key={n.nuit} className="flex justify-between">
                 <span>Nuit du {dateCourte(n.nuit.slice(0, 10))}</span>
-                <span>{ariary(n.tarifApplique)}</span>
+                <span>
+                  {ariary(n.tarifApplique)}
+                  {n.saison && <span className="ml-1 text-xs text-slate-500">({texte(n.saison.nom)})</span>}
+                </span>
               </li>
             ))}
           </ul>
+          <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-semibold">
+            <span>Total</span>
+            <span>{ariary(r.nuitees.reduce((somme, n) => somme + n.tarifApplique, 0))}</span>
+          </div>
         </details>
       )}
       {r.statut === "EN_ATTENTE_PAIEMENT" && (

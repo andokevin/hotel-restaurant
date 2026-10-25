@@ -187,7 +187,7 @@ export function Reservations() {
       {enCheckIn && <ModaleCheckIn reservation={enCheckIn} onFermer={() => setEnCheckIn(null)} />}
       {detail && (
         <Modale titre="Détail de la réservation" onFermer={() => setDetail(null)}>
-          <RecapReservation reservation={detail} />
+          <DetailReservation id={detail.id} />
           {detail.statut === "EN_ATTENTE_PAIEMENT" && (
             <div className="mt-4">
               <LienPaiementComptoir cible={{ reservationId: detail.id }} />
@@ -197,6 +197,15 @@ export function Reservations() {
       )}
     </div>
   );
+}
+
+// Détail complet (avec les nuitées) chargé à l'ouverture : la liste, elle, ne les contient pas.
+function DetailReservation({ id }: { id: string }) {
+  const detail = useQuery({
+    queryKey: ["reservations", "detail", id],
+    queryFn: () => api.get<Reservation>(`/reservations/${id}`),
+  });
+  return <Donnees requete={detail}>{(r) => <RecapReservation reservation={r} />}</Donnees>;
 }
 
 // Boutons disponibles selon le statut de la réservation.

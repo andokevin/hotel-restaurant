@@ -25,8 +25,9 @@ const ACTIFS = ["EN_ATTENTE_PAIEMENT", "CONFIRMEE", "EN_COURS"] as const;
 const ROUTE_CREATION = "POST /reservations";
 
 const DETAIL = {
-  nuitees: { orderBy: { nuit: "asc" } },
+  nuitees: { orderBy: { nuit: "asc" }, include: { saison:{select: { nom: true }} } },
   chambre: { include: { categorie: true } },
+ 
 } satisfies Prisma.ReservationInclude;
 
 const AucuneChambre = () =>
