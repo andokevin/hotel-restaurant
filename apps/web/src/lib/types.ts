@@ -84,7 +84,9 @@ export type Reservation = {
   categorieId?: string;
   chambreId?: string | null;
   chambre?: { id?: string; numero: string; categorieId?: string; categorie?: Categorie } | null;
-  nuitees?: { nuit: string; tarifApplique: number }[];
+  // saison : celle qui a fixé le prix de la nuit (null = tarif normal de la catégorie)
+  nuitees?: { nuit: string; tarifApplique: number; saison?: { nom: TexteTraduit } | null }[];
+  saison?: { nom: TexteTraduit } | null;
 };
 
 // --- Facturation ---
