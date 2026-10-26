@@ -7,8 +7,20 @@ import { ApiError, api, messageErreur } from "../lib/api";
 import { ajouterJours, ariary, aujourdhui, texte } from "../lib/format";
 import { useCategories } from "../lib/requetes";
 import type { Reservation } from "../lib/types";
-import { champEmail, champNom, champTelephone, normaliserTelephone } from "../lib/validation";
-import { Alerte, Bouton, Champ, Chargement, MessageErreur, classeInput } from "./ui";
+import {
+  champEmail,
+  champNom,
+  champTelephone,
+  normaliserTelephone,
+} from "../lib/validation";
+import {
+  Alerte,
+  Bouton,
+  Champ,
+  Chargement,
+  MessageErreur,
+  classeInput,
+} from "./ui";
 
 const schema = z
   .object({
@@ -19,7 +31,11 @@ const schema = z
     clientTelephone: champTelephone,
     clientEmail: champEmail,
     pieceIdentiteType: z.enum(["CIN", "PASSEPORT"]),
-    pieceIdentiteNumero: z.string().trim().min(4, "4 caractères minimum").max(30),
+    pieceIdentiteNumero: z
+      .string()
+      .trim()
+      .min(4, "4 caractères minimum")
+      .max(30),
     canal: z.enum(["RECEPTION", "FACEBOOK", "SITE_WEB"]),
   })
   // Les dates AAAA-MM-JJ se comparent comme des chaînes.
@@ -43,7 +59,12 @@ type Props = {
   onCreee: (reservation: Reservation) => void;
 };
 
-export function FormulaireReservation({ categorieInitiale, personnel, client, onCreee }: Props) {
+export function FormulaireReservation({
+  categorieInitiale,
+  personnel,
+  client,
+  onCreee,
+}: Props) {
   const categories = useCategories();
   const queryClient = useQueryClient();
 
@@ -51,29 +72,29 @@ export function FormulaireReservation({ categorieInitiale, personnel, client, on
   // (double clic, réseau lent), le serveur reconnaît la clé et ne crée qu'une réservation.
   const cleIdempotence = useRef(crypto.randomUUID());
 
-  const { register, handleSubmit, watch, formState, setValue, getValues } = useForm<Formulaire>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      categorieId:  "",
-      dateArrivee: aujourdhui(),
-      dateDepart: ajouterJours(aujourdhui(), 1),
-      clientNom: client?.nom ?? "",
-      clientTelephone: client?.telephone ?? "",
-      clientEmail: client?.email ?? "",
-      pieceIdentiteType: "CIN",
-      pieceIdentiteNumero: "",
-      canal: personnel ? "RECEPTION" : "SITE_WEB",
-    },
-  });
+  const { register, handleSubmit, watch, formState, setValue, getValues } =
+    useForm<Formulaire>({
+      resolver: zodResolver(schema),
+      defaultValues: {
+        categorieId: "",
+        dateArrivee: aujourdhui(),
+        dateDepart: ajouterJours(aujourdhui(), 1),
+        clientNom: client?.nom ?? "",
+        clientTelephone: client?.telephone ?? "",
+        clientEmail: client?.email ?? "",
+        pieceIdentiteType: "CIN",
+        pieceIdentiteNumero: "",
+        canal: personnel ? "RECEPTION" : "SITE_WEB",
+      },
+    });
 
-    // Présélection depuis l'URL (?categorie=CODE), une fois les catégories chargées.
+  // Présélection depuis l'URL (?categorie=CODE), une fois les catégories chargées.
   // On n'écrase jamais un choix déjà fait par l'utilisateur.
 
-  useEffect(() => 
-    {
+  useEffect(() => {
     if (!categorieInitiale || getValues("categorieId")) return;
     const c = categories.data?.find((x) => x.code === categorieInitiale);
-    if (c) setValue( "categorieId", c.id );
+    if (c) setValue("categorieId", c.id);
   }, [categorieInitiale, categories.data, getValues, setValue]);
 
   const e = formState.errors;
@@ -92,7 +113,9 @@ export function FormulaireReservation({ categorieInitiale, personnel, client, on
         // Le canal n'est envoyé que par le personnel (pour un client, le serveur force SITE_WEB).
         ...(personnel ? { canal: data.canal } : {}),
       };
-      return api.post<Reservation>("/reservations", corps, { "Idempotency-Key": cleIdempotence.current });
+      return api.post<Reservation>("/reservations", corps, {
+        "Idempotency-Key": cleIdempotence.current,
+      });
     },
     onSuccess: (reservation) => {
       cleIdempotence.current = crypto.randomUUID(); // la prochaine réservation sera une nouvelle action
@@ -102,29 +125,42 @@ export function FormulaireReservation({ categorieInitiale, personnel, client, on
     onError: (err) => {
       // Le serveur a répondu (ex. plus de chambre) : l'utilisateur va modifier sa demande,
       // ce sera donc une nouvelle action. En cas de coupure réseau, on garde la même clé.
-      if (err instanceof ApiError && err.status > 0) cleIdempotence.current = crypto.randomUUID();
+      if (err instanceof ApiError && err.status > 0)
+        cleIdempotence.current = crypto.randomUUID();
     },
   });
 
   // Estimation indicative ; le montant qui fait foi est celui renvoyé par le serveur.
-  const categorieChoisie = categories.data?.find((c) => c.id === watch("categorieId"));
+  const categorieChoisie = categories.data?.find(
+    (c) => c.id === watch("categorieId"),
+  );
   const arrivee = watch("dateArrivee");
   const depart = watch("dateDepart");
   const nuits =
-    arrivee && depart ? Math.round((new Date(depart).getTime() - new Date(arrivee).getTime()) / 86_400_000) : 0;
+    arrivee && depart
+      ? Math.round(
+          (new Date(depart).getTime() - new Date(arrivee).getTime()) /
+            86_400_000,
+        )
+      : 0;
 
   if (categories.isPending) return <Chargement />;
   if (categories.isError) return <MessageErreur erreur={categories.error} />;
 
   const erreurCreation =
-    creation.error instanceof ApiError && creation.error.code === "AUCUNE_CHAMBRE_DISPONIBLE"
+    creation.error instanceof ApiError &&
+    creation.error.code === "AUCUNE_CHAMBRE_DISPONIBLE"
       ? "Aucune chambre de cette catégorie n'est disponible pour ces dates. Essayez d'autres dates ou une autre catégorie."
       : creation.error
         ? messageErreur(creation.error)
         : null;
 
   return (
-    <form onSubmit={handleSubmit((d) => creation.mutate(d))} className="space-y-5" noValidate>
+    <form
+      onSubmit={handleSubmit((d) => creation.mutate(d))}
+      className="space-y-5"
+      noValidate
+    >
       <fieldset className="space-y-3">
         <legend className="mb-2 font-semibold text-slate-900">Séjour</legend>
         <Champ label="Catégorie de chambre" erreur={e.categorieId?.message}>
@@ -132,23 +168,35 @@ export function FormulaireReservation({ categorieInitiale, personnel, client, on
             <option value="">— Choisir —</option>
             {categories.data.map((c) => (
               <option key={c.id} value={c.id}>
-                {texte(c.libelle)} — {ariary(c.tarifNuit)} / nuit ({c.capacite} pers.)
+                {texte(c.libelle)} — {ariary(c.tarifNuit)} / nuit ({c.capacite}{" "}
+                pers.)
               </option>
             ))}
           </select>
         </Champ>
         <div className="grid gap-3 sm:grid-cols-2">
           <Champ label="Arrivée" erreur={e.dateArrivee?.message}>
-            <input type="date" min={aujourdhui()} className={classeInput} {...register("dateArrivee")} />
+            <input
+              type="date"
+              min={aujourdhui()}
+              className={classeInput}
+              {...register("dateArrivee")}
+            />
           </Champ>
           <Champ label="Départ" erreur={e.dateDepart?.message}>
-            <input type="date" min={aujourdhui()} className={classeInput} {...register("dateDepart")} />
+            <input
+              type="date"
+              min={aujourdhui()}
+              className={classeInput}
+              {...register("dateDepart")}
+            />
           </Champ>
         </div>
         {categorieChoisie && nuits > 0 && (
           <p className="text-sm text-slate-600">
-            Estimation : {nuits} nuit(s) × {ariary(categorieChoisie.tarifNuit)} ≈ {ariary(nuits * categorieChoisie.tarifNuit)}.
-            Le montant exact sera calculé par l'hôtel.
+            Estimation : {nuits} nuit(s) × {ariary(categorieChoisie.tarifNuit)}{" "}
+            ≈ {ariary(nuits * categorieChoisie.tarifNuit)}. Le montant exact
+            sera calculé par l'hôtel.
           </p>
         )}
       </fieldset>
@@ -160,10 +208,18 @@ export function FormulaireReservation({ categorieInitiale, personnel, client, on
         </Champ>
         <div className="grid gap-3 sm:grid-cols-2">
           <Champ label="Téléphone" erreur={e.clientTelephone?.message}>
-            <input className={classeInput} placeholder="034 12 345 67" {...register("clientTelephone")} />
+            <input
+              className={classeInput}
+              placeholder="034 12 345 67"
+              {...register("clientTelephone")}
+            />
           </Champ>
           <Champ label="Email" erreur={e.clientEmail?.message}>
-            <input type="email" className={classeInput} {...register("clientEmail")} />
+            <input
+              type="email"
+              className={classeInput}
+              {...register("clientEmail")}
+            />
           </Champ>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -173,8 +229,14 @@ export function FormulaireReservation({ categorieInitiale, personnel, client, on
               <option value="PASSEPORT">Passeport</option>
             </select>
           </Champ>
-          <Champ label="Numéro de la pièce" erreur={e.pieceIdentiteNumero?.message}>
-            <input className={classeInput} {...register("pieceIdentiteNumero")} />
+          <Champ
+            label="Numéro de la pièce"
+            erreur={e.pieceIdentiteNumero?.message}
+          >
+            <input
+              className={classeInput}
+              {...register("pieceIdentiteNumero")}
+            />
           </Champ>
         </div>
         {personnel && (
@@ -189,7 +251,11 @@ export function FormulaireReservation({ categorieInitiale, personnel, client, on
       </fieldset>
 
       {erreurCreation && <Alerte>{erreurCreation}</Alerte>}
-      <Bouton type="submit" enCours={creation.isPending} className="w-full sm:w-auto">
+      <Bouton
+        type="submit"
+        enCours={creation.isPending}
+        className="w-full sm:w-auto"
+      >
         Réserver
       </Bouton>
     </form>

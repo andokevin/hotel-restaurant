@@ -382,6 +382,25 @@ describe("Espèces, consommations restaurant et clôture", () => {
     expect(copies[0]?.payload).toMatchObject({ numero: f.numero, montantTotal: 240_000, lignes: [{ origine: "HEBERGEMENT" }] });
   });
 
+    it("séjour payé mais client encore à l'hôtel : clôture manuelle refusée (les repas imputés seraient perdus)", async () => {
+    // Préparer : facture de séjour entièrement payée, client toujours présent (séjour EN_COURS)
+    const { evt, f } = await factureEmise();
+    await appel("post", `/factures/${f.id}/encaissements`, RECEPTION).send({ montant: 240_000 });
+    exposerReservation(evt, "EN_COURS");
+
+    // Agir : la réception essaie de clôturer
+    const res = await appel("post", `/factures/${f.id}/cloturer`, RECEPTION);
+
+    // Vérifier : refus clair, facture toujours PAYEE, aucune copie envoyée à la comptabilité
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("SEJOUR_NON_TERMINE");
+    expect((await facture(evt.payload.reservationId)).statut).toBe("PAYEE");
+    expect(await evenementsOutbox("facture.cloturee")).toHaveLength(0);
+  });
+
+
+
+
   it("consommation restaurant imputée : ligne RESTAURANT, total augmenté, clôture seulement après le solde", async () => {
     const { evt, f } = await factureEmise();
     await appel("post", `/factures/${f.id}/encaissements`, RECEPTION).send({ montant: 240_000 }); // séjour payé
@@ -407,6 +426,7 @@ describe("Espèces, consommations restaurant et clôture", () => {
     // Reste à payer : la clôture est refusée
     expect((await appel("post", `/factures/${f.id}/cloturer`, RECEPTION)).status).toBe(422);
     await appel("post", `/factures/${f.id}/encaissements`, RECEPTION).send({ montant: 43_000 });
+    exposerReservation(evt, "TERMINEE"); // le client est parti : la clôture manuelle est permise
     const cloture = await appel("post", `/factures/${f.id}/cloturer`, RECEPTION);
     expect(cloture.status).toBe(200);
     expect(cloture.body.statut).toBe("CLOTUREE");
