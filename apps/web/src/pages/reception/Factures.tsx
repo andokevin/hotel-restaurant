@@ -109,6 +109,8 @@ export function Factures() {
 // Détail complet d'une facture + actions de caisse de la réception.
 function ModaleFacture({ factureId, onFermer }: { factureId: string; onFermer: () => void }) {
   const queryClient = useQueryClient();
+  // La clôture est définitive (copie envoyée à la comptabilité) : un 1er clic demande confirmation.
+  const [confirmation, setConfirmation] = useState(false);
   const facture = useQuery({
     queryKey: ["factures", "detail", factureId],
     queryFn: () => api.get<Facture>(`/factures/${factureId}`),
@@ -116,7 +118,10 @@ function ModaleFacture({ factureId, onFermer }: { factureId: string; onFermer: (
 
   const cloture = useMutation({
     mutationFn: () => api.post<Facture>(`/factures/${factureId}/cloturer`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["factures"] }),
+    onSuccess: () => {
+      setConfirmation(false);
+      void queryClient.invalidateQueries({ queryKey: ["factures"] });
+    },
   });
 
   return (
@@ -134,9 +139,31 @@ function ModaleFacture({ factureId, onFermer }: { factureId: string; onFermer: (
           )}
           {facture.data.statut === "PAYEE" && (
             <div className="space-y-2">
-              <Bouton enCours={cloture.isPending} onClick={() => cloture.mutate()}>
-                Clôturer la facture
-              </Bouton>
+              {confirmation ? (
+                <Alerte type="attention">
+                  <p>
+                    Clôturer la facture <strong>{facture.data.numero}</strong> ? C'est définitif : une copie part à la
+                    comptabilité, et plus aucun repas ne pourra y être ajouté.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Bouton
+                      variante="secondaire"
+                      disabled={cloture.isPending}
+                      onClick={() => {
+                        setConfirmation(false);
+                        cloture.reset();
+                      }}
+                    >
+                      Revenir
+                    </Bouton>
+                    <Bouton enCours={cloture.isPending} onClick={() => cloture.mutate()}>
+                      Oui, clôturer
+                    </Bouton>
+                  </div>
+                </Alerte>
+              ) : (
+                <Bouton onClick={() => setConfirmation(true)}>Clôturer la facture</Bouton>
+              )}
               {cloture.isError && <Alerte>{messageErreur(cloture.error)}</Alerte>}
             </div>
           )}
@@ -145,3 +172,4 @@ function ModaleFacture({ factureId, onFermer }: { factureId: string; onFermer: (
     </Modale>
   );
 }
+

@@ -271,11 +271,23 @@ async function cloturerDansTransaction(tx: Prisma.TransactionClient, factureId: 
   });
 }
 
+// Clôture manuelle (réception). Une facture de SÉJOUR ne se clôture qu'après le départ du client :
+// tant qu'il est à l'hôtel, le restaurant peut encore imputer des repas à sa chambre, et un repas
+// arrivé sur une facture close serait perdu (voir traiterConsommationImputee). Au check-out, la
+// clôture est automatique (traiterSejourTermine), sans passer par ici.
 export async function cloturerFacture(factureId: string) {
-  await trouverFacture(factureId);
+  const f = await trouverFacture(factureId);
+  if (f.statut !== "PAYEE") throw RegleMetier("Seule une facture entièrement payée peut être clôturée");
+  if (f.type === "SEJOUR" && f.reservationId) {
+    const r = await lireReservation(f.reservationId);
+    if (r.statut !== "TERMINEE") {
+      throw new AppError(422, "SEJOUR_NON_TERMINE", "Le client n'est pas encore parti : la facture sera clôturée au check-out");
+    }
+  }
   await prisma.$transaction((tx) => cloturerDansTransaction(tx, factureId));
   return trouverFacture(factureId);
 }
+
 
 // Consommateur de sejour.termine : si le séjour est soldé, la facture est clôturée tout de suite.
 // Sinon (consommations restaurant ajoutées), la réceptionniste encaisse le reste puis clôture.
