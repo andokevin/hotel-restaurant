@@ -6,6 +6,7 @@ import { app } from "../src/app.js";
 import { bus } from "../src/bus.js";
 import { prisma } from "../src/db.js";
 import { traiterMenageTermine } from "../src/modules/article/article.service.js";
+import { ecrireEvenement } from "../src/outbox.js";
 
 const ADMIN = { id: "11111111-1111-4111-8111-111111111111", role: "ADMIN" } as const;
 const appel = (methode: "get" | "post", chemin: string) =>
@@ -90,5 +91,19 @@ describe("Mouvements manuels et lecture", () => {
 
     const sorties = await appel("get", `/interne/sorties-menage?jour=${aujourdhuiMadagascar()}`);
     expect(sorties.body).toEqual(expect.arrayContaining([expect.objectContaining({ code: "PANTOUFLE", quantite: 2 }), expect.objectContaining({ code: "GEL_DOUCHE", quantite: 0 })]));
+  });
+});
+
+describe("Producteur d'événements (ecrireEvenement)", () => {
+  it("contenu contraire au contrat : erreur, et la transaction métier est annulée", async () => {
+    // `as never` contourne TypeScript, comme le ferait une donnée inattendue à l'exécution.
+    const ecriture = prisma.$transaction(async (tx) => {
+      await tx.article.create({ data: { code: "SAVON", libelle: { fr: "Savon" }, quantite: 3, seuilAlerte: 5 } });
+      await ecrireEvenement(tx, "stock.seuil_atteint", { articleId: "pas-un-uuid", code: "SAVON", quantite: -1, seuilAlerte: 5 } as never);
+    });
+
+    await expect(ecriture).rejects.toThrow(/stock\.seuil_atteint/);
+    expect(await prisma.article.count({ where: { code: "SAVON" } })).toBe(0);
+    expect(await prisma.outboxEvenement.count()).toBe(0);
   });
 });

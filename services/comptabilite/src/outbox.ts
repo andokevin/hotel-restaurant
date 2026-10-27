@@ -1,4 +1,10 @@
-import { estDoublonEvenement, relayerOutbox as relayer, type ContenuEvenement, type TypeEvenement } from "@hotel/commun";
+import {
+  estDoublonEvenement,
+  relayerOutbox as relayer,
+  verifierContenu,
+  type ContenuEvenement,
+  type TypeEvenement,
+} from "@hotel/commun";
 import { bus } from "./bus.js";
 import { prisma } from "./db.js";
 import type { Prisma } from "./generated/prisma/client.js";
@@ -6,8 +12,11 @@ import { logger } from "./logger.js";
 
 // Écrit un événement DANS la transaction de l'appelant : il existera si et seulement si
 // la donnée métier est enregistrée. Aucun appel réseau ici (Redis viendra après, via le relais).
-export const ecrireEvenement = <T extends TypeEvenement>(tx: Prisma.TransactionClient, type: T, payload: ContenuEvenement<T>) =>
-  tx.outboxEvenement.create({ data: { type, payload } });
+// Contenu contraire au contrat : erreur, donc la transaction métier est annulée.
+export const ecrireEvenement = <T extends TypeEvenement>(tx: Prisma.TransactionClient, type: T, payload: ContenuEvenement<T>) => {
+  verifierContenu(type, payload);
+  return tx.outboxEvenement.create({ data: { type, payload } });
+};
 
 // Relais (job toutes les 2 s) : la boucle est dans @hotel/commun, l'accès à NOTRE table ici.
 export const relayerOutbox = (lot = 100) =>
