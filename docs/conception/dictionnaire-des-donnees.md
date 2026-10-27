@@ -225,9 +225,10 @@ Reste à payer = `montantTotal − montantPaye` (calculé, jamais stocké : une 
 | `id` | uuid | oui | Envoyé à Papi comme **`reference`** ; Papi le renvoie dans `merchantPaymentReference` → vérification de cohérence. |
 | `factureId` | uuid, FK → facture | oui | La facture payée (plusieurs paiements possibles : un acompte Papi + le reste en espèces). |
 | `montant` | entier, CHECK > 0 | oui | **Le reste à payer calculé par le serveur** au moment de la demande. Le montant notifié par Papi doit être **exactement** celui-ci, sinon `ANOMALIE`. |
+| `montantRecu` | entier | non | Montant **annoncé par Papi**, enregistré seulement en cas d'`ANOMALIE` : c'est la base du remboursement (il peut différer de `montant`). |
 | `statut` | enum `StatutPaiement` | oui | `EN_ATTENTE` (lien créé) → `REUSSI` / `ECHOUE` ; `ANOMALIE` = argent reçu mais incohérent (mauvais montant, facture déjà soldée, lien remplacé) → **remboursement manuel**. |
 | `methode` | enum `MethodePaiement` | non | `ESPECES`, `MVOLA`, `ORANGE_MONEY`, `AIRTEL_MONEY`, `CARTE`. Inconnue tant que Papi n'a pas dit comment le client a payé. |
-| `referenceExterne` | texte, **unique** | non | `paymentReference` de Papi : une même transaction Papi ne peut être enregistrée **qu'une fois**. |
+| `referenceExterne` | texte, **unique** | non | `paymentReference` de Papi : une même transaction Papi ne peut être enregistrée **qu'une fois**. Aussi enregistrée pour une `ANOMALIE`, pour retrouver la transaction à rembourser. |
 | `encaissePar` | uuid (auth), sans FK | non | Pour les espèces : qui a encaissé (contrôle de caisse). |
 | `jetonHash` | texte | non | **Empreinte SHA-256** du jeton secret placé dans l'URL de notification. **1re vérification** d'une notification : elle doit présenter le bon jeton. On ne garde que l'empreinte : même avec une copie de la base, impossible de fabriquer une notification valide. |
 | `notificationTokenHash` | texte | non | Empreinte du `notificationToken` que Papi a renvoyé à la création du lien. **2e vérification**, faite par le worker. |

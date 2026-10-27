@@ -159,10 +159,22 @@ export async function recevoirNotification(query: unknown, corps: unknown): Prom
 
 const jobSchema = z.object({ paiementId: z.uuid(), notification: notificationSchema });
 
-async function marquerAnomalie(paiementId: string, depuis: StatutPaiement[], raison: string) {
-  await prisma.paiement.updateMany({ where: { id: paiementId, statut: { in: depuis } }, data: { statut: "ANOMALIE", erreur: raison } });
+// On garde ce que Papi annonce (référence, moyen, montant reçu) : sans la référence Papi,
+// impossible de retrouver la transaction pour la rembourser.
+async function marquerAnomalie(paiementId: string, depuis: StatutPaiement[], raison: string, n: NotificationPapi) {
+  const referencePapi = n.paymentReference ?? null;
+  await prisma.paiement.updateMany({
+    where: { id: paiementId, statut: { in: depuis } },
+    data: {
+      statut: "ANOMALIE",
+      erreur: raison,
+      referenceExterne: referencePapi,
+      methode: lireMethode(n.paymentMethod),
+      montantRecu: Number.isInteger(n.amount) ? n.amount : null,
+    },
+  });
   // L'argent a été débité : un humain doit s'en occuper (remboursement ou régularisation).
-  logger.error({ paiementId, raison }, "ANOMALIE DE PAIEMENT : intervention manuelle nécessaire");
+  logger.error({ paiementId, referencePapi, montantRecu: n.amount, raison }, "ANOMALIE DE PAIEMENT : intervention manuelle nécessaire");
 }
 
 export async function traiterNotification(donnees: unknown): Promise<void> {
@@ -198,11 +210,11 @@ export async function traiterNotification(donnees: unknown): Promise<void> {
   // --- Paiement réussi ---
   if (p.statut === "REUSSI" || p.statut === "ANOMALIE") return; // déjà traité
   if (p.statut === "ECHOUE") {
-    return marquerAnomalie(paiementId, ["ECHOUE"], "Argent reçu sur un lien remplacé ou refusé");
+    return marquerAnomalie(paiementId, ["ECHOUE"], "Argent reçu sur un lien remplacé ou refusé", n);
   }
   // Le montant reçu doit être EXACTEMENT celui demandé, en Ariary.
   if (n.amount !== p.montant || (n.currency && n.currency.toUpperCase() !== "MGA")) {
-    return marquerAnomalie(paiementId, ["EN_ATTENTE"], `Montant incohérent : reçu ${n.amount} ${n.currency ?? ""}, attendu ${p.montant} MGA`);
+    return marquerAnomalie(paiementId, ["EN_ATTENTE"], `Montant incohérent : reçu ${n.amount} ${n.currency ?? ""}, attendu ${p.montant} MGA`, n);
   }
 
   const methode = lireMethode(n.paymentMethod);
@@ -223,7 +235,7 @@ export async function traiterNotification(donnees: unknown): Promise<void> {
     // La facture a déjà été soldée entre-temps (espèces à la réception, autre paiement…) :
     // la base refuse le surpaiement, la transaction est annulée, on signale l'anomalie.
     if (lireErreurBase(err)?.contrainte === "facture_pas_de_surpaiement") {
-      return marquerAnomalie(paiementId, ["EN_ATTENTE"], "Facture déjà soldée : paiement en trop");
+      return marquerAnomalie(paiementId, ["EN_ATTENTE"], "Facture déjà soldée : paiement en trop", n);
     }
     throw err;
   }
