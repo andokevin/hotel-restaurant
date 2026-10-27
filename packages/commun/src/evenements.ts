@@ -134,6 +134,15 @@ export function estEnveloppe<T extends TypeEvenement>(type: T, donnees: unknown)
 
 export const estTypeEvenement = (t: string): t is TypeEvenement => t in CONTRATS;
 
+// Côté producteur : TypeScript disparaît à l'exécution, donc on revalide avec le contrat AVANT
+// d'écrire dans l'outbox. Appelée dans la transaction métier : l'erreur l'annule entièrement.
+// Erreur ordinaire (500), pas ZodError (400) : un événement invalide est un bug du service,
+// pas une faute de l'utilisateur.
+export function verifierContenu<T extends TypeEvenement>(type: T, payload: ContenuEvenement<T>): void {
+  const r = CONTRATS[type].safeParse(payload);
+  if (!r.success) throw new Error(`Événement ${type} invalide : ${z.prettifyError(r.error)}`);
+}
+
 export type Consommateur = "hebergement" | "facturation" | "menage" | "stock" | "restaurant" | "comptabilite";
 
 // Qui écoute quoi en V1. BullMQ n'a pas de diffusion : un job n'est lu que par UN worker.
