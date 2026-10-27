@@ -31,9 +31,15 @@ type LienPaiement = { paiementId: string; url: string; montant: number };
 
 // Un lien Papi ne sert qu'à UNE transaction. On ne le renvoie que s'il est tout récent (double clic,
 // bouton « Précédent ») ; au-delà, le client est peut-être déjà passé sur Papi et le lien peut être
-// consommé : on en crée un nouveau. Si l'ancien est payé malgré tout, le worker le classe en ANOMALIE.
+// consommé : on en crée un nouveau. Si l'ancien est payé malgré tout, le worker l'accepte tant que la
+// facture n'est pas soldée (et abandonne le nouveau), sinon le classe en ANOMALIE.
 // createdAt et non updatedAt : updatedAt change à chaque modification de la ligne.
 const REUTILISATION_LIEN_MS = 30_000;
+
+// Raisons d'un ECHOUE qui ne vient pas de Papi. traiterNotification les distingue :
+// un lien REMPLACÉ payé quand même peut être accepté, un lien ABANDONNÉ payé est en trop.
+const RAISON_LIEN_REMPLACE = "Remplacé par un nouveau lien de paiement";
+const RAISON_LIEN_ABANDONNE = "Abandonné : paiement reçu sur l'ancien lien";
 
 export async function demanderPaiement(demande: DemandePaiementDTO, identite: Identite): Promise<LienPaiement> {
   const facture =
@@ -69,7 +75,7 @@ export async function demanderPaiement(demande: DemandePaiementDTO, identite: Id
     // Montant changé (consommation ajoutée), lien trop ancien (peut-être consommé sur Papi) ou jamais obtenu : on le remplace.
     await prisma.paiement.updateMany({
       where: { id: enAttente.id, statut: "EN_ATTENTE" },
-      data: { statut: "ECHOUE", erreur: "Remplacé par un nouveau lien de paiement" },
+      data: { statut: "ECHOUE", erreur: RAISON_LIEN_REMPLACE },
     });
   }
 
@@ -209,33 +215,64 @@ export async function traiterNotification(donnees: unknown): Promise<void> {
 
   // --- Paiement réussi ---
   if (p.statut === "REUSSI" || p.statut === "ANOMALIE") return; // déjà traité
+  // Le montant reçu doit être EXACTEMENT celui demandé, en Ariary.
+  const montantConforme = n.amount === p.montant && (!n.currency || n.currency.toUpperCase() === "MGA");
   if (p.statut === "ECHOUE") {
+    // Lien REMPLACÉ (pas refusé par Papi) et payé quand même : le client n'a peut-être payé que celui-là
+    // (confirmation MVola tardive). On l'accepte si la facture l'attend encore (voir encaisser).
+    if (p.erreur === RAISON_LIEN_REMPLACE && montantConforme) return encaisser(p, n, "ECHOUE");
     return marquerAnomalie(paiementId, ["ECHOUE"], "Argent reçu sur un lien remplacé ou refusé", n);
   }
-  // Le montant reçu doit être EXACTEMENT celui demandé, en Ariary.
-  if (n.amount !== p.montant || (n.currency && n.currency.toUpperCase() !== "MGA")) {
+  if (!montantConforme) {
     return marquerAnomalie(paiementId, ["EN_ATTENTE"], `Montant incohérent : reçu ${n.amount} ${n.currency ?? ""}, attendu ${p.montant} MGA`, n);
   }
+  return encaisser(p, n, "EN_ATTENTE");
+}
 
+// Levée dans la transaction quand la facture n'attend plus d'argent : annule tout, puis ANOMALIE.
+class FactureNonAttendue extends Error {}
+
+async function encaisser(
+  p: { id: string; factureId: string; montant: number },
+  n: NotificationPapi,
+  depuis: "EN_ATTENTE" | "ECHOUE",
+): Promise<void> {
   const methode = lireMethode(n.paymentMethod);
-  if (!methode) logger.warn({ paiementId, methode: n.paymentMethod }, "moyen de paiement Papi inconnu");
+  if (!methode) logger.warn({ paiementId: p.id, methode: n.paymentMethod }, "moyen de paiement Papi inconnu");
 
   try {
-    await prisma.$transaction(async (tx) => {
+    const encaisse = await prisma.$transaction(async (tx) => {
       // Condition dans l'écriture : deux notifications différentes pour le même paiement
       // (ou deux workers) ne peuvent pas encaisser deux fois. La seconde obtient count = 0.
       const { count } = await tx.paiement.updateMany({
-        where: { id: paiementId, statut: "EN_ATTENTE" },
-        data: { statut: "REUSSI", methode, referenceExterne: n.paymentReference ?? null },
+        where: { id: p.id, statut: depuis },
+        data: { statut: "REUSSI", methode, referenceExterne: n.paymentReference ?? null, erreur: null },
       });
-      if (count === 0) return;
-      await appliquerPaiement(tx, p.factureId, paiementId, p.montant);
+      if (count === 0) return false;
+      if (depuis === "ECHOUE") {
+        // Ancien lien : seulement si la facture n'est pas soldée (ni annulée)…
+        const f = await tx.facture.findUniqueOrThrow({ where: { id: p.factureId }, select: { statut: true } });
+        if (f.statut !== "EMISE") throw new FactureNonAttendue();
+        // …et le lien qui l'avait remplacé est abandonné, DANS la même transaction.
+        await tx.paiement.updateMany({
+          where: { factureId: p.factureId, statut: "EN_ATTENTE", id: { not: p.id } },
+          data: { statut: "ECHOUE", erreur: RAISON_LIEN_ABANDONNE },
+        });
+      }
+      await appliquerPaiement(tx, p.factureId, p.id, p.montant);
+      return true;
     });
+    if (!encaisse && depuis === "EN_ATTENTE") {
+      // Le paiement a quitté EN_ATTENTE entre la lecture et l'écriture. S'il a été abandonné
+      // (l'ancien lien vient d'être payé), l'argent reçu ici est en trop.
+      const actuel = await prisma.paiement.findUniqueOrThrow({ where: { id: p.id }, select: { statut: true } });
+      if (actuel.statut === "ECHOUE") return marquerAnomalie(p.id, ["ECHOUE"], "Argent reçu sur un lien abandonné", n);
+    }
   } catch (err) {
     // La facture a déjà été soldée entre-temps (espèces à la réception, autre paiement…) :
     // la base refuse le surpaiement, la transaction est annulée, on signale l'anomalie.
-    if (lireErreurBase(err)?.contrainte === "facture_pas_de_surpaiement") {
-      return marquerAnomalie(paiementId, ["EN_ATTENTE"], "Facture déjà soldée : paiement en trop", n);
+    if (err instanceof FactureNonAttendue || lireErreurBase(err)?.contrainte === "facture_pas_de_surpaiement") {
+      return marquerAnomalie(p.id, [depuis], "Facture déjà soldée : paiement en trop", n);
     }
     throw err;
   }

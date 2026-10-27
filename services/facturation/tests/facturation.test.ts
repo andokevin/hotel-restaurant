@@ -163,27 +163,6 @@ describe("Demande de paiement (lien Papi)", () => {
     expect(await prisma.paiement.count({ where: { statut: "EN_ATTENTE" } })).toBe(1);
   });
 
-  it("argent reçu malgré tout sur l'ancien lien : ANOMALIE, rien n'est encaissé", async () => {
-    // Préparer : lien A, vieilli de 2 minutes, puis remplacé par un lien B quand le client reclique.
-    // On garde `demande` (ce que le faux Papi a reçu pour A) pour fabriquer la notification de A.
-    const { evt, demande, paiementId } = await factureEtLien();
-    await prisma.paiement.update({ where: { id: paiementId }, data: { createdAt: new Date(Date.now() - 2 * 60_000) } });
-    await appel("post", "/paiements", CLIENT_A).send({ reservationId: evt.payload.reservationId });
-
-    // Agir : Papi annonce, en retard, que l'ANCIEN lien (A) a été payé (ex. confirmation MVola tardive)
-    const n = notificationReussie(demande);
-    await traiterNotification(job(paiementId, n));
-
-    // Vérifier : A passe en ANOMALIE (remboursement manuel), avec de quoi retrouver la transaction chez Papi,
-    // et la facture n'a rien encaissé
-    expect(await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).toMatchObject({
-      statut: "ANOMALIE",
-      referenceExterne: n.paymentReference,
-      methode: "MVOLA",
-      montantRecu: 240_000,
-    });
-    expect((await facture(evt.payload.reservationId)).montantPaye).toBe(0);
-  });
 
   it("deux demandes simultanées : un seul paiement en attente (index unique partiel)", async () => {
     const evt = reservationCreee();
@@ -351,6 +330,76 @@ describe("Traitement de la notification (worker)", () => {
       montantRecu: 240_000,
     });
     expect((await facture(evt.payload.reservationId)).montantPaye).toBe(240_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("Paiement reçu sur un lien remplacé (#66)", () => {
+  // Lien A vieilli de 2 minutes, puis remplacé par un lien B quand le client reclique « Payer ».
+  // On garde la demande reçue par le faux Papi pour chaque lien : elle sert à fabriquer sa notification.
+  const deuxLiens = async () => {
+    const { evt, demande: demandeA, paiementId: a } = await factureEtLien();
+    await prisma.paiement.update({ where: { id: a }, data: { createdAt: new Date(Date.now() - 2 * 60_000) } });
+    const res = await appel("post", "/paiements", CLIENT_A).send({ reservationId: evt.payload.reservationId });
+    return { evt, a, demandeA, b: res.body.paiementId as string, demandeB: derniereDemandePapi() };
+  };
+  const paiement = (id: string) => prisma.paiement.findUniqueOrThrow({ where: { id } });
+
+  it("seul l'ancien lien A est payé : A accepté, B abandonné, facture payée une fois", async () => {
+    const { evt, a, demandeA, b } = await deuxLiens();
+    const n = notificationReussie(demandeA);
+
+    await traiterNotification(job(a, n));
+
+    expect(await paiement(a)).toMatchObject({ statut: "REUSSI", methode: "MVOLA", referenceExterne: n.paymentReference });
+    expect(await paiement(b)).toMatchObject({ statut: "ECHOUE", erreur: "Abandonné : paiement reçu sur l'ancien lien" });
+    expect(await facture(evt.payload.reservationId)).toMatchObject({ statut: "PAYEE", montantPaye: 240_000 });
+    expect(await evenementsOutbox("paiement.recu")).toHaveLength(1);
+  });
+
+  it("B payé puis A payé : B REUSSI, A en ANOMALIE (payé deux fois, à rembourser)", async () => {
+    const { evt, a, demandeA, b, demandeB } = await deuxLiens();
+    await traiterNotification(job(b, notificationReussie(demandeB)));
+    const n = notificationReussie(demandeA);
+
+    await traiterNotification(job(a, n));
+
+    expect((await paiement(b)).statut).toBe("REUSSI");
+    expect(await paiement(a)).toMatchObject({ statut: "ANOMALIE", referenceExterne: n.paymentReference, methode: "MVOLA", montantRecu: 240_000 });
+    expect((await facture(evt.payload.reservationId)).montantPaye).toBe(240_000);
+    expect(await evenementsOutbox("paiement.recu")).toHaveLength(1);
+  });
+
+  it("A payé puis B payé : A REUSSI, B en ANOMALIE", async () => {
+    const { evt, a, demandeA, b, demandeB } = await deuxLiens();
+    await traiterNotification(job(a, notificationReussie(demandeA)));
+
+    await traiterNotification(job(b, notificationReussie(demandeB)));
+
+    expect((await paiement(a)).statut).toBe("REUSSI");
+    expect((await paiement(b)).statut).toBe("ANOMALIE");
+    expect((await facture(evt.payload.reservationId)).montantPaye).toBe(240_000);
+  });
+
+  it("A et B notifiés en même temps : un seul encaissement, l'autre en ANOMALIE", async () => {
+    const { evt, a, demandeA, b, demandeB } = await deuxLiens();
+
+    await Promise.all([traiterNotification(job(a, notificationReussie(demandeA))), traiterNotification(job(b, notificationReussie(demandeB)))]);
+
+    const statuts = [(await paiement(a)).statut, (await paiement(b)).statut].sort();
+    expect(statuts).toEqual(["ANOMALIE", "REUSSI"]);
+    expect((await facture(evt.payload.reservationId)).montantPaye).toBe(240_000);
+    expect(await evenementsOutbox("paiement.recu")).toHaveLength(1);
+  });
+
+  it("lien refusé par Papi (pas remplacé) puis annoncé réussi : ANOMALIE, rien n'est encaissé", async () => {
+    const { evt, demande, paiementId } = await factureEtLien();
+    await traiterNotification(job(paiementId, notificationReussie(demande, { paymentStatus: "FAILED", message: "Solde insuffisant" })));
+
+    await traiterNotification(job(paiementId, notificationReussie(demande)));
+
+    expect((await paiement(paiementId)).statut).toBe("ANOMALIE");
+    expect((await facture(evt.payload.reservationId)).montantPaye).toBe(0);
   });
 });
 
