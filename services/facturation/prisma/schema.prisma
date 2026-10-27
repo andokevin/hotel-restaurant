@@ -104,6 +104,8 @@ model Paiement {
   id                    String           @id @default(uuid()) @db.Uuid // = "reference" envoyée à Papi
   factureId             String           @map("facture_id") @db.Uuid
   montant               Int
+  // Montant annoncé par Papi, gardé en cas d'ANOMALIE : c'est ce qu'il faudra peut-être rembourser
+  montantRecu           Int?             @map("montant_recu")
   statut                StatutPaiement   @default(EN_ATTENTE)
   // Inconnue tant que Papi n'a pas dit comment le client a payé
   methode               MethodePaiement?

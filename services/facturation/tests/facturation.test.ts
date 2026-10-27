@@ -171,10 +171,17 @@ describe("Demande de paiement (lien Papi)", () => {
     await appel("post", "/paiements", CLIENT_A).send({ reservationId: evt.payload.reservationId });
 
     // Agir : Papi annonce, en retard, que l'ANCIEN lien (A) a été payé (ex. confirmation MVola tardive)
-    await traiterNotification(job(paiementId, notificationReussie(demande)));
+    const n = notificationReussie(demande);
+    await traiterNotification(job(paiementId, n));
 
-    // Vérifier : A passe en ANOMALIE (remboursement manuel) et la facture n'a rien encaissé
-    expect(await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).toMatchObject({ statut: "ANOMALIE" });
+    // Vérifier : A passe en ANOMALIE (remboursement manuel), avec de quoi retrouver la transaction chez Papi,
+    // et la facture n'a rien encaissé
+    expect(await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).toMatchObject({
+      statut: "ANOMALIE",
+      referenceExterne: n.paymentReference,
+      methode: "MVOLA",
+      montantRecu: 240_000,
+    });
     expect((await facture(evt.payload.reservationId)).montantPaye).toBe(0);
   });
 
@@ -300,10 +307,12 @@ describe("Traitement de la notification (worker)", () => {
   it("montant reçu différent : ANOMALIE (argent débité, à traiter à la main), facture inchangée", async () => {
     const { evt, demande, paiementId } = await factureEtLien();
 
-    await traiterNotification(job(paiementId, notificationReussie(demande, { amount: 1_000 })));
+    const n = notificationReussie(demande, { amount: 1_000, paymentMethod: "ORANGE_MONEY" });
+    await traiterNotification(job(paiementId, n));
 
     const p = await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } });
-    expect(p.statut).toBe("ANOMALIE");
+    expect(p).toMatchObject({ statut: "ANOMALIE", referenceExterne: n.paymentReference, methode: "ORANGE_MONEY", montantRecu: 1_000 });
+    expect(p.montant).toBe(240_000); // le montant DEMANDÉ reste intact à côté du montant reçu
     expect(p.erreur).toContain("reçu 1000");
     expect((await facture(evt.payload.reservationId)).montantPaye).toBe(0);
   });
@@ -332,9 +341,15 @@ describe("Traitement de la notification (worker)", () => {
     const f = await facture(evt.payload.reservationId);
     await appel("post", `/factures/${f.id}/encaissements`, RECEPTION).send({ montant: 240_000 });
 
-    await traiterNotification(job(paiementId, notificationReussie(demande)));
+    const n = notificationReussie(demande);
+    await traiterNotification(job(paiementId, n));
 
-    expect((await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).statut).toBe("ANOMALIE");
+    expect(await prisma.paiement.findUniqueOrThrow({ where: { id: paiementId } })).toMatchObject({
+      statut: "ANOMALIE",
+      referenceExterne: n.paymentReference,
+      methode: "MVOLA",
+      montantRecu: 240_000,
+    });
     expect((await facture(evt.payload.reservationId)).montantPaye).toBe(240_000);
   });
 });
