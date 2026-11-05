@@ -201,6 +201,7 @@ export type Commande = {
   statutPaiement: StatutPaiementCommande;
   montantTotal: number;
   lignes: { platNom: string; prixUnitaire: number; quantite: number }[];
+  createdAt: string; // heure de prise de commande (ISO)
 };
 
 // --- Comptabilité ---
