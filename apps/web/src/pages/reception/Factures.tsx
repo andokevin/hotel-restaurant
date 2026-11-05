@@ -106,8 +106,8 @@ export function Factures() {
   );
 }
 
-// Détail complet d'une facture + actions de caisse de la réception.
-function ModaleFacture({ factureId, onFermer }: { factureId: string; onFermer: () => void }) {
+// Détail complet d'une facture + actions de caisse de la réception (aussi ouverte depuis « Départs du jour »).
+export function ModaleFacture({ factureId, onFermer }: { factureId: string; onFermer: () => void }) {
   const queryClient = useQueryClient();
   // La clôture est définitive (copie envoyée à la comptabilité) : un 1er clic demande confirmation.
   const [confirmation, setConfirmation] = useState(false);

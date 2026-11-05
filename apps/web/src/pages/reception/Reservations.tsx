@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router";
 import { LienPaiementComptoir } from "../../components/BoutonPayer";
 import { RecapReservation } from "../../components/RecapReservation";
 import {
+  Alerte,
   Badge,
   Bouton,
   ChampRecherche,
@@ -209,7 +210,16 @@ function DetailReservation({ id }: { id: string }) {
 }
 
 // Boutons disponibles selon le statut de la réservation.
-export function ActionsReservation({ reservation, onCheckIn }: { reservation: Reservation; onCheckIn?: () => void }) {
+export function ActionsReservation({
+  reservation,
+  onCheckIn,
+  resteAPayer,
+}: {
+  reservation: Reservation;
+  onCheckIn?: () => void;
+  // Reste à payer sur la facture du séjour, quand l'écran le connaît (« Départs du jour »)
+  resteAPayer?: number | null;
+}) {
   const queryClient = useQueryClient();
   const r = reservation;
 
@@ -265,6 +275,13 @@ export function ActionsReservation({ reservation, onCheckIn }: { reservation: Re
           <p className="mt-2 text-slate-600">
             Le séjour sera terminé, la chambre passera à « Sale » et une tâche de ménage sera créée. Vérifiez d'abord que la facture est réglée.
           </p>
+          {resteAPayer != null && resteAPayer > 0 && (
+            <div className="mt-3">
+              <Alerte type="attention">
+                Reste à payer : {ariary(resteAPayer)}. Encaissez-le avant le départ du client.
+              </Alerte>
+            </div>
+          )}
         </ModaleConfirmation>
       )}
       {aConfirmer === "annuler" && (
