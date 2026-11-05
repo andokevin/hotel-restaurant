@@ -1,9 +1,10 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { z } from "zod";
 import { useAuth } from "../../auth/AuthContext";
+import { lireDepuis } from "../../auth/depuis";
 import { Alerte, Bouton, Carte, Champ, classeInput } from "../../components/ui";
 import { api, messageErreur } from "../../lib/api";
 import type { Utilisateur } from "../../lib/types";
@@ -27,6 +28,8 @@ type Formulaire = z.infer<typeof schema>;
 export function Inscription() {
   const { connecter } = useAuth();
   const navigate = useNavigate();
+  // Chambre choisie depuis l'accueil, transmise par la page de connexion (#81).
+  const depuis = lireDepuis(useLocation().state);
   const [erreur, setErreur] = useState<string | null>(null);
   const { register, handleSubmit, formState } = useForm<Formulaire>({
     resolver: zodResolver(schema),
@@ -47,7 +50,7 @@ export function Inscription() {
       });
       // Compte créé : on connecte directement le client.
       await connecter(telephone, data.motDePasse);
-      navigate("/client/reserver", { replace: true });
+      navigate(depuis ?? "/client/reserver", { replace: true });
     } catch (err) {
       setErreur(messageErreur(err));
     }
@@ -86,7 +89,7 @@ export function Inscription() {
         </form>
         <p className="mt-4 text-center text-sm text-slate-600">
           Déjà inscrit ?{" "}
-          <Link to="/connexion" className="font-medium text-emerald-800 hover:underline">
+          <Link to="/connexion" state={depuis ? { depuis } : undefined} className="font-medium text-emerald-800 hover:underline">
             Se connecter
           </Link>
         </p>
