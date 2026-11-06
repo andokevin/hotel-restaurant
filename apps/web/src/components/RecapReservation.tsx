@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ariary, dateCourte, dateHeure, texte } from "../lib/format";
+import { ariary, dateCourte, dateHeure, personnes, texte } from "../lib/format";
 import type { Reservation } from "../lib/types";
 import { Badge } from "./ui";
 
@@ -40,6 +40,8 @@ export function RecapReservation({ reservation }: { reservation: Reservation }) 
         <dd>{dateCourte(r.dateArrivee)}</dd>
         <dt className="text-slate-500">Départ</dt>
         <dd>{dateCourte(r.dateDepart)}</dd>
+        <dt className="text-slate-500">Personnes</dt>
+        <dd>{personnes(r)}</dd>
         {r.chambre && (
           <>
             <dt className="text-slate-500">Chambre</dt>

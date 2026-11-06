@@ -22,7 +22,7 @@ import {
   classeTh,
 } from "../../components/ui";
 import { api, qs } from "../../lib/api";
-import { ariary, aujourdhui, dateCourte, libelle } from "../../lib/format";
+import { ariary, aujourdhui, dateCourte, libelle, personnes } from "../../lib/format";
 import type { Reservation, StatutReservation } from "../../lib/types";
 import { ModaleCheckIn } from "./ModaleCheckIn";
 
@@ -164,6 +164,7 @@ export function Reservations() {
                     <td className={classeTd}>
                       {r.clientNom}
                       <span className="block text-xs text-slate-500">{r.clientTelephone}</span>
+                      <span className="block text-xs text-slate-500">{personnes(r)}</span>
                     </td>
                     <td className={classeTd}>
                       {dateCourte(r.dateArrivee)} → {dateCourte(r.dateDepart)}

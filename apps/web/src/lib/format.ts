@@ -34,6 +34,15 @@ export const ajouterJours = (aaaammjj: string, jours: number): string => {
   return versAAAAMMJJ(d);
 };
 
+// { nbAdultes: 2, nbEnfants: 1 } → "2 adultes, 1 enfant" ; sans enfant → "2 adultes".
+// Une ancienne réservation (avant #74) n'a pas ces champs : 1 adulte par défaut, comme en base.
+export const personnes = (r: { nbAdultes?: number; nbEnfants?: number }): string => {
+  const adultes = r.nbAdultes ?? 1;
+  const enfants = r.nbEnfants ?? 0;
+  const texteAdultes = `${adultes} adulte${adultes > 1 ? "s" : ""}`;
+  return enfants > 0 ? `${texteAdultes}, ${enfants} enfant${enfants > 1 ? "s" : ""}` : texteAdultes;
+};
+
 // Texte traduit ({ fr, mg, en }) ou simple chaîne → texte français.
 export const texte = (valeur: TexteTraduit | string | null | undefined): string => {
   if (!valeur) return "";

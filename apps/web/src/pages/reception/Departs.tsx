@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Bouton, Donnees, TableDefilante, TitrePage, classeTable, classeTd, classeTh } from "../../components/ui";
 import { api, qs } from "../../lib/api";
-import { ariary, dateCourte } from "../../lib/format";
+import { ariary, dateCourte, personnes } from "../../lib/format";
 import type { Facture, Reservation } from "../../lib/types";
 import { ModaleFacture } from "./Factures";
 import { ActionsReservation } from "./Reservations";
@@ -61,7 +61,10 @@ function LigneDepart({ reservation: r, onEncaisser }: { reservation: Reservation
   return (
     <tr>
       <td className={`${classeTd} font-mono`}>{r.reference}</td>
-      <td className={classeTd}>{r.clientNom}</td>
+      <td className={classeTd}>
+        {r.clientNom}
+        <span className="block text-xs text-slate-500">{personnes(r)}</span>
+      </td>
       <td className={classeTd}>{r.chambre?.numero ?? "—"}</td>
       <td className={classeTd}>{dateCourte(r.dateDepart)}</td>
       <td className={`${classeTd} text-right`}>{ariary(r.montantTotal)}</td>

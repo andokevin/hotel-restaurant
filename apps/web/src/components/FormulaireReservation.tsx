@@ -25,6 +25,9 @@ import {
 const schema = z
   .object({
     categorieId: z.string().min(1, "Choisissez une catégorie"),
+    // valueAsNumber : un champ vide donne NaN, refusé avec ce message
+    nbAdultes: z.number({ error: "Indiquez un nombre" }).int().min(1, "Au moins 1 adulte").max(20),
+    nbEnfants: z.number({ error: "Indiquez un nombre (0 si aucun)" }).int().min(0, "0 au minimum").max(20),
     dateArrivee: z.iso.date("Date invalide"),
     dateDepart: z.iso.date("Date invalide"),
     clientNom: champNom,
@@ -65,7 +68,6 @@ export function FormulaireReservation({
   client,
   onCreee,
 }: Props) {
-  const categories = useCategories();
   const queryClient = useQueryClient();
 
   // Clé d'idempotence : générée UNE fois pour ce formulaire. Si la même soumission part deux fois
@@ -77,6 +79,8 @@ export function FormulaireReservation({
       resolver: zodResolver(schema),
       defaultValues: {
         categorieId: "",
+        nbAdultes: 1,
+        nbEnfants: 0,
         dateArrivee: aujourdhui(),
         dateDepart: ajouterJours(aujourdhui(), 1),
         clientNom: client?.nom ?? "",
@@ -88,14 +92,25 @@ export function FormulaireReservation({
       },
     });
 
+  // Seules les catégories assez grandes pour le groupe sont proposées (filtre fait par le serveur).
+  const nbAdultes = watch("nbAdultes");
+  const nbEnfants = watch("nbEnfants");
+  const total = (Number.isFinite(nbAdultes) ? nbAdultes : 0) + (Number.isFinite(nbEnfants) ? nbEnfants : 0);
+  const categories = useCategories(Math.max(1, total));
+
   // Présélection depuis l'URL (?categorie=CODE), une fois les catégories chargées.
   // On n'écrase jamais un choix déjà fait par l'utilisateur.
-
   useEffect(() => {
     if (!categorieInitiale || getValues("categorieId")) return;
     const c = categories.data?.find((x) => x.code === categorieInitiale);
     if (c) setValue("categorieId", c.id);
   }, [categorieInitiale, categories.data, getValues, setValue]);
+
+  // Le groupe a grandi et la catégorie choisie est devenue trop petite : on retire le choix.
+  useEffect(() => {
+    const choisie = getValues("categorieId");
+    if (choisie && categories.data && !categories.data.some((c) => c.id === choisie)) setValue("categorieId", "");
+  }, [categories.data, getValues, setValue]);
 
   const e = formState.errors;
 
@@ -103,6 +118,8 @@ export function FormulaireReservation({
     mutationFn: (data: Formulaire) => {
       const corps = {
         categorieId: data.categorieId,
+        nbAdultes: data.nbAdultes,
+        nbEnfants: data.nbEnfants,
         clientNom: data.clientNom,
         clientTelephone: normaliserTelephone(data.clientTelephone),
         clientEmail: data.clientEmail,
@@ -147,9 +164,14 @@ export function FormulaireReservation({
   if (categories.isPending) return <Chargement />;
   if (categories.isError) return <MessageErreur erreur={categories.error} />;
 
-  const erreurCreation =
-    creation.error instanceof ApiError &&
-    creation.error.code === "AUCUNE_CHAMBRE_DISPONIBLE"
+  // Capacité dépassée (422 du serveur) : affichée sous les personnes, là où se corrige l'erreur.
+  const erreurCapacite =
+    creation.error instanceof ApiError && creation.error.status === 422 && /accueille/.test(creation.error.message)
+      ? creation.error.message
+      : null;
+  const erreurCreation = erreurCapacite
+    ? null
+    : creation.error instanceof ApiError && creation.error.code === "AUCUNE_CHAMBRE_DISPONIBLE"
       ? "Aucune chambre de cette catégorie n'est disponible pour ces dates. Essayez d'autres dates ou une autre catégorie."
       : creation.error
         ? messageErreur(creation.error)
@@ -163,7 +185,23 @@ export function FormulaireReservation({
     >
       <fieldset className="space-y-3">
         <legend className="mb-2 font-semibold text-slate-900">Séjour</legend>
-        <Champ label="Catégorie de chambre" erreur={e.categorieId?.message}>
+        <fieldset className="space-y-2">
+          <legend className="mb-1 text-sm font-medium text-slate-700">Personnes</legend>
+          <div className="grid grid-cols-2 gap-3">
+            <Champ label="Adultes" erreur={e.nbAdultes?.message}>
+              <input type="number" min={1} max={20} inputMode="numeric" className={classeInput} {...register("nbAdultes", { valueAsNumber: true })} />
+            </Champ>
+            <Champ label="Enfants" erreur={e.nbEnfants?.message}>
+              <input type="number" min={0} max={20} inputMode="numeric" className={classeInput} {...register("nbEnfants", { valueAsNumber: true })} />
+            </Champ>
+          </div>
+          {erreurCapacite && <Alerte>{erreurCapacite}</Alerte>}
+        </fieldset>
+        <Champ
+          label="Catégorie de chambre"
+          erreur={e.categorieId?.message}
+          aide={categories.data.length === 0 ? `Aucune catégorie ne peut accueillir ${total} personnes.` : undefined}
+        >
           <select className={classeInput} {...register("categorieId")}>
             <option value="">— Choisir —</option>
             {categories.data.map((c) => (

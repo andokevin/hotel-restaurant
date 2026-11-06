@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Alerte, Bouton, Champ, Chargement, MessageErreur, Modale, classeInput } from "../../components/ui";
 import { ApiError, api, messageErreur } from "../../lib/api";
-import { dateCourte } from "../../lib/format";
+import { dateCourte, personnes } from "../../lib/format";
 import { useChambres } from "../../lib/requetes";
 import type { Reservation } from "../../lib/types";
 
@@ -37,7 +37,8 @@ export function ModaleCheckIn({ reservation, onFermer }: { reservation: Reservat
     <Modale titre={`Check-in — ${reservation.reference}`} onFermer={onFermer}>
       <div className="space-y-4 text-sm">
         <p>
-          <strong>{reservation.clientNom}</strong> · du {dateCourte(reservation.dateArrivee)} au {dateCourte(reservation.dateDepart)}
+          <strong>{reservation.clientNom}</strong> ({personnes(reservation)}) · du {dateCourte(reservation.dateArrivee)} au{" "}
+          {dateCourte(reservation.dateDepart)}
           {reservation.chambre && <> · chambre prévue n° {reservation.chambre.numero}</>}
         </p>
 
