@@ -152,6 +152,22 @@ describe("Facturation", () => {
     expect((await avecJeton(request(app).post(`/api/paiements/${id}/retour`), "FEMME_MENAGE")).status).toBe(403);
   });
 
+  it("anomalies de paiement : comptable et admin seulement, /anomalies n'est pas pris pour un :id (#68)", async () => {
+    const id = "7b1f3c2a-9d4e-4f5a-8b6c-1d2e3f4a5b6c";
+    const routes = [
+      () => request(app).get("/api/paiements/anomalies"),
+      () => request(app).post(`/api/paiements/${id}/rembourse`),
+      () => request(app).post(`/api/paiements/${id}/accepter`),
+    ];
+    for (const route of routes) {
+      expect((await route()).status).toBe(401);
+      expect((await avecJeton(route(), "CLIENT")).status).toBe(403);
+      expect((await avecJeton(route(), "RECEPTIONNISTE")).status).toBe(403);
+      expect((await avecJeton(route(), "COMPTABLE")).status).toBe(200);
+      expect((await avecJeton(route(), "ADMIN")).status).toBe(200);
+    }
+  });
+
   it("encaisser : réception ou restaurant, pas un client ; clôturer : réception", async () => {
     const id = "7b1f3c2a-9d4e-4f5a-8b6c-1d2e3f4a5b6c";
     expect((await avecJeton(request(app).post(`/api/factures/${id}/encaissements`), "CLIENT")).status).toBe(403);

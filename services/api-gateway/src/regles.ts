@@ -56,6 +56,10 @@ export const REGLES: readonly Regle[] = [
   // Notification serveur à serveur de Papi : pas de JWT possible. Elle est authentifiée par le
   // jeton secret de son URL (vérifié par facturation) puis par le notificationToken (worker).
   { methode: "post", chemin: "/paiements/notification", service: "facturation", acces: "PUBLIC" },
+  // Anomalies (argent débité mais non compté) : comptable et admin. AVANT "/paiements/:id".
+  { methode: "get", chemin: "/paiements/anomalies", service: "facturation", acces: ["COMPTABLE", "ADMIN"] },
+  { methode: "post", chemin: "/paiements/:id/rembourse", service: "facturation", acces: ["COMPTABLE", "ADMIN"] },
+  { methode: "post", chemin: "/paiements/:id/accepter", service: "facturation", acces: ["COMPTABLE", "ADMIN"] },
   { methode: "get", chemin: "/paiements/:id", service: "facturation", acces: ["CLIENT", ...PERSONNEL_CAISSE] },
   // Retour du client depuis Papi : le lien ne sera plus réutilisé (facturation vérifie l'appartenance).
   { methode: "post", chemin: "/paiements/:id/retour", service: "facturation", acces: ["CLIENT", ...RECEPTION] },

@@ -303,3 +303,106 @@ export async function marquerVisite(id: string, identite: Identite): Promise<voi
   // Condition DANS l'écriture : si visiteLe est déjà rempli, 0 ligne modifiée, la 1re date est gardée.
   await prisma.paiement.updateMany({ where: { id, visiteLe: null }, data: { visiteLe: new Date() } });
 }
+
+// ---------------------------------------------------------------------------
+// 4. Anomalies : argent débité chez le client mais non compté (#68). Traitées par le comptable.
+// ---------------------------------------------------------------------------
+
+// Ce qui est crédité si on accepte l'anomalie : le montant réellement reçu (sinon celui demandé).
+const montantACrediter = (p: { montant: number; montantRecu: number | null }) => p.montantRecu ?? p.montant;
+
+// Situation CALCULÉE (jamais stockée : elle dépend de l'état actuel de la facture) :
+// la facture attend encore cet argent → on peut l'accepter ; sinon, il faut le rendre.
+export type Situation = "A_ACCEPTER" | "A_REMBOURSER";
+const situation = (p: { montant: number; montantRecu: number | null }, f: { statut: string; montantTotal: number; montantPaye: number }): Situation =>
+  f.statut === "EMISE" && montantACrediter(p) <= f.montantTotal - f.montantPaye ? "A_ACCEPTER" : "A_REMBOURSER";
+
+export async function listerAnomalies() {
+  const anomalies = await prisma.paiement.findMany({
+    where: { statut: "ANOMALIE" },
+    orderBy: { createdAt: "asc" }, // la plus ancienne d'abord : le client attend depuis le plus longtemps
+    include: {
+      facture: {
+        select: {
+          id: true,
+          numero: true,
+          type: true,
+          clientNom: true,
+          clientTelephone: true,
+          clientEmail: true,
+          statut: true,
+          montantTotal: true,
+          montantPaye: true,
+          // TOUS les paiements de la facture : pour comprendre ce qui s'est passé
+          paiements: { select: { ...CHAMPS_PAIEMENT, erreur: true, montantRecu: true }, orderBy: { createdAt: "asc" } },
+        },
+      },
+    },
+  });
+  return anomalies.map((p) => ({
+    id: p.id,
+    montant: p.montant,
+    montantRecu: p.montantRecu,
+    methode: p.methode,
+    referenceExterne: p.referenceExterne, // indispensable pour retrouver la transaction chez Papi
+    raison: p.erreur,
+    createdAt: p.createdAt,
+    situation: situation(p, p.facture),
+    facture: { ...p.facture, resteAPayer: p.facture.montantTotal - p.facture.montantPaye },
+  }));
+}
+
+// Après un updateMany à 0 ligne : le paiement n'existe pas (404) ou n'est plus en ANOMALIE (409,
+// par exemple un autre comptable vient de le traiter).
+async function refuserTraitement(id: string): Promise<never> {
+  const p = await prisma.paiement.findUnique({ where: { id }, select: { statut: true } });
+  if (!p) throw NotFound("Paiement");
+  throw new AppError(409, "PAIEMENT_NON_ANOMALIE", `Ce paiement n'est pas (ou plus) en anomalie : ${p.statut}`);
+}
+
+const trace = (identite: Identite, commentaire: string) => ({ traiteLe: new Date(), traitePar: identite.id, commentaire });
+
+const lirePaiementTraite = (id: string) =>
+  prisma.paiement.findUniqueOrThrow({
+    where: { id },
+    select: { ...CHAMPS_PAIEMENT, erreur: true, montantRecu: true, traiteLe: true, traitePar: true, commentaire: true },
+  });
+
+// « Marquer remboursé » : le comptable a rendu l'argent dans le tableau de bord Papi
+// (Papi n'expose pas d'API de remboursement : l'action se fait chez eux, on la trace ici).
+export async function marquerRembourse(id: string, commentaire: string, identite: Identite) {
+  // Condition DANS l'écriture : deux comptables qui cliquent en même temps → une seule ligne modifiée.
+  const { count } = await prisma.paiement.updateMany({
+    where: { id, statut: "ANOMALIE" },
+    data: { statut: "REMBOURSE", ...trace(identite, commentaire) },
+  });
+  if (count === 0) await refuserTraitement(id);
+  return lirePaiementTraite(id);
+}
+
+// « Accepter ce paiement » : la facture attend encore cet argent, on l'encaisse comme un paiement normal
+// (même transaction que la facture, événement paiement.recu).
+export async function accepterAnomalie(id: string, commentaire: string, identite: Identite) {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const p = await tx.paiement.findUnique({ where: { id }, include: { facture: true } });
+      if (!p) throw NotFound("Paiement");
+      const { count } = await tx.paiement.updateMany({
+        where: { id, statut: "ANOMALIE" },
+        data: { statut: "REUSSI", ...trace(identite, commentaire) },
+      });
+      if (count === 0) throw new AppError(409, "PAIEMENT_NON_ANOMALIE", `Ce paiement n'est pas (ou plus) en anomalie : ${p.statut}`);
+      if (situation(p, p.facture) !== "A_ACCEPTER") {
+        throw RegleMetier("La facture n'attend plus cet argent : il faut le rembourser");
+      }
+      await appliquerPaiement(tx, p.factureId, p.id, montantACrediter(p));
+    });
+  } catch (err) {
+    // Filet de sécurité : la base refuse aussi tout surpaiement (CHECK montant_paye <= montant_total).
+    if (lireErreurBase(err)?.contrainte === "facture_pas_de_surpaiement") {
+      throw RegleMetier("La facture n'attend plus cet argent : il faut le rembourser");
+    }
+    throw err;
+  }
+  return lirePaiementTraite(id);
+}
