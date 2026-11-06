@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { telephone } from "@hotel/commun";
 import { email } from "../utilisateur/utilisateur.schema.js";
+
 // Un seul champ « identifiant » : le téléphone (identifiant principal) ou l'email.
 // Un "@" suffit à distinguer les deux.
 export const connexionSchema = z.object({
