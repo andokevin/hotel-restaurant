@@ -13,6 +13,9 @@ export const creerReservationSchema = z
     pieceIdentiteNumero: z.string().trim().min(4).max(30),
     dateArrivee: z.iso.date(),
     dateDepart: z.iso.date(),
+    // Valeurs par défaut : le formulaire actuel du front n'envoie pas encore ces champs.
+    nbAdultes: z.number().int().min(1, "Au moins un adulte").default(1),
+    nbEnfants: z.number().int().min(0).default(0),
     // Canal V1 déclaré par le personnel ; pour un CLIENT, il est forcé à SITE_WEB.
     // (ASSISTANT_IA existe dans l'enum de la base mais relève de la V3.)
     canal: z.enum(["RECEPTION", "FACEBOOK", "SITE_WEB"]).default("RECEPTION"),

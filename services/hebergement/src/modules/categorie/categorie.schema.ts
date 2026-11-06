@@ -7,4 +7,10 @@ export const creerCategorieSchema = z.object({
   tarifNuit: z.number().int().positive(),
 });
 
+// GET /categories?personnes=3 : dans l'URL tout est texte ("3"), coerce le convertit en nombre.
+export const filtreCategorieSchema = z.object({
+  personnes: z.coerce.number().int().min(1).optional(),
+});
+
 export type CreerCategorieDTO = z.infer<typeof creerCategorieSchema>;
+export type FiltreCategorie = z.infer<typeof filtreCategorieSchema>;

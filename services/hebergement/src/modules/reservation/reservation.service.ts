@@ -144,6 +144,12 @@ export async function creerReservation(data: CreerReservationDTO, identite: Iden
   const categorie = await prisma.categorieChambre.findUnique({ where: { id: data.categorieId } });
   if (!categorie) throw NotFound("Catégorie");
 
+  // Vérifiée AVANT de chercher une chambre : inutile de parcourir les chambres pour rien.
+  const personnes = data.nbAdultes + data.nbEnfants;
+  if (personnes > categorie.capacite) {
+    throw RegleMetier(`Cette catégorie accueille ${categorie.capacite} personnes au maximum (demande : ${personnes} personnes)`);
+  }
+
   const nuitees = await calculerNuitees(categorie, data.dateArrivee, data.dateDepart);
   // Le montant est TOUJOURS calculé ici, jamais reçu du client.
   const montantTotal = nuitees.reduce((s, n) => s + n.tarifApplique, 0);
@@ -184,6 +190,8 @@ export async function creerReservation(data: CreerReservationDTO, identite: Iden
             pieceIdentiteNumero: data.pieceIdentiteNumero,
             dateArrivee: arrivee,
             dateDepart: depart,
+            nbAdultes: data.nbAdultes,
+            nbEnfants: data.nbEnfants,
             montantTotal,
             canal: estClient ? "SITE_WEB" : data.canal,
             langue: data.langue,
@@ -206,6 +214,8 @@ export async function creerReservation(data: CreerReservationDTO, identite: Iden
           dateArrivee: data.dateArrivee,
           dateDepart: data.dateDepart,
           nbNuits: nuitees.length,
+          nbAdultes: r.nbAdultes,
+          nbEnfants: r.nbEnfants,
           montantTotal,
           expireLe: expireLe.toISOString(),
         });

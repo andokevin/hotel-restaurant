@@ -114,6 +114,9 @@ model Reservation {
   dateArrivee          DateTime          @map("date_arrivee") @db.Date
   dateDepart           DateTime          @map("date_depart") @db.Date
   montantTotal         Int               @map("montant_total")
+  // Au moins 1 adulte, enfants ≥ 0 : CHECK écrits à la main dans la migration nombre_personnes
+  nbAdultes            Int               @default(1) @map("nb_adultes")
+  nbEnfants            Int               @default(0) @map("nb_enfants")
   statut               StatutReservation @default(EN_ATTENTE_PAIEMENT)
   canal                CanalReservation
   langue               Langue            @default(FR)

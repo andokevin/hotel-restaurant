@@ -1,10 +1,10 @@
 import type { Request, Response } from "express";
 import { lireId } from "@hotel/commun";
-import { creerCategorieSchema } from "./categorie.schema.js";
+import { creerCategorieSchema, filtreCategorieSchema } from "./categorie.schema.js";
 import * as service from "./categorie.service.js";
 
-export const lister = async (_req: Request, res: Response) => {
-  res.json(await service.listerCategories());
+export const lister = async (req: Request, res: Response) => {
+  res.json(await service.listerCategories(filtreCategorieSchema.parse(req.query)));
 };
 
 export const detail = async (req: Request, res: Response) => {
