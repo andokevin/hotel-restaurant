@@ -30,6 +30,11 @@ export const CONTRATS = {
     nbEnfants: z.number().int().min(0).default(0),
     montantTotal: z.number().int().nonnegative(),
     expireLe: horodatage,
+    // Détail figé pour la facture (une ligne par groupe de nuits au même tarif).
+    // Facultatif : les événements publiés avant ce champ n'en ont pas (facture sur une seule ligne).
+    nuitees: z
+      .array(z.object({ nuit: date, tarifApplique: z.number().int().nonnegative(), saison: z.string().nullable() }))
+      .optional(),
   }),
   "reservation.confirmee": z.object({
     reservationId: z.uuid(),

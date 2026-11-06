@@ -61,6 +61,31 @@ export const reservationCreee = (surcharge: Partial<ContenuEvenement<"reservatio
     ...surcharge,
   });
 
+// Les nuitées d'un séjour du 2030-10-10, une par tarif donné : nuitees(80_000, 80_000, [120_000, "Haute saison"])
+export const nuitees = (...tarifs: (number | [number, string])[]) =>
+  tarifs.map((t, i) => {
+    const [tarifApplique, saison] = typeof t === "number" ? [t, null] : t;
+    return { nuit: `2030-10-${String(10 + i).padStart(2, "0")}`, tarifApplique, saison };
+  });
+
+// Nuitées telles que hebergement les expose en REST. Ancien format d'événement (sans nuitées) :
+// on les reconstitue à parts égales, le reste de la division sur la 1re nuit.
+const nuiteesExposees = (p: ContenuEvenement<"reservation.creee">) => {
+  const base = Math.floor(p.montantTotal / p.nbNuits);
+  const liste =
+    p.nuitees ??
+    Array.from({ length: p.nbNuits }, (_, i) => ({
+      nuit: `2030-10-${String(10 + i).padStart(2, "0")}`,
+      tarifApplique: i === 0 ? p.montantTotal - base * (p.nbNuits - 1) : base,
+      saison: null,
+    }));
+  return liste.map((n) => ({
+    nuit: `${n.nuit}T00:00:00.000Z`,
+    tarifApplique: n.tarifApplique,
+    saison: n.saison === null ? null : { nom: { fr: n.saison } },
+  }));
+};
+
 // La même réservation, telle que la renvoie GET /interne/reservations/:id de hebergement
 export const exposerReservation = (evt: Enveloppe<"reservation.creee">, statut = "EN_ATTENTE_PAIEMENT") => {
   const p = evt.payload;
@@ -77,7 +102,7 @@ export const exposerReservation = (evt: Enveloppe<"reservation.creee">, statut =
     dateArrivee: `${p.dateArrivee}T00:00:00.000Z`,
     dateDepart: `${p.dateDepart}T00:00:00.000Z`,
     chambre: { numero: p.chambreNumero, categorie: { code: p.categorieCode } },
-    nuitees: Array.from({ length: p.nbNuits }, () => ({})),
+    nuitees: nuiteesExposees(p),
   });
 };
 

@@ -92,11 +92,14 @@ model LigneFacture {
   montant      Int
   origine      Origine
   sourceId     String  @map("source_id") @db.Uuid // reservation_id ou commande_id
+  // Rang de la ligne pour une même source : un séjour a une ligne par groupe de nuitées (0, 1, 2…),
+  // une commande restaurant a toujours une seule ligne (0).
+  ordre        Int     @default(0)
 
   facture Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
 
-  // Une réservation ou une commande n'est facturée qu'une fois (idempotence de consommation.imputee)
-  @@unique([origine, sourceId])
+  // Une même ligne n'est jamais facturée deux fois (idempotence de consommation.imputee : ordre 0)
+  @@unique([origine, sourceId, ordre])
   @@map("ligne_facture")
 }
 

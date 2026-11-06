@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { bus } from "../src/bus.js";
 import { prisma } from "../src/db.js";
-import { appel, creerCategorie, creerChambre, jour, RECEPTION, reserver, viderBase, viderFiles } from "./aide.js";
+import { appel, creerCategorie, creerChambre, evenementsOutbox, jour, RECEPTION, reserver, viderBase, viderFiles } from "./aide.js";
 
 beforeEach(async () => {
   await viderBase();
@@ -37,5 +37,28 @@ describe("Détail des nuitées", () => {
     expect(nuit2).toMatchObject({ tarifApplique: 80_000, saison: null });
     const somme = res.body.nuitees.reduce((total: number, n: { tarifApplique: number }) => total + n.tarifApplique, 0);
     expect(somme).toBe(res.body.montantTotal);
+  });
+
+  it("reservation.creee transporte les nuitées (prix et nom de la saison) pour la facture (#73)", async () => {
+    const categorie = await creerCategorie("STANDARD", 80_000);
+    await creerChambre(categorie.id, "101");
+    await prisma.saison.create({
+      data: {
+        nom: { fr: "Fêtes" },
+        dateDebut: new Date(`${jour(10)}T00:00:00Z`),
+        dateFin: new Date(`${jour(10)}T00:00:00Z`),
+        tarifs: { create: { categorieId: categorie.id, tarifNuit: 120_000 } },
+      },
+    });
+
+    await reserver(categorie.id, jour(10), jour(12));
+
+    const [evt] = await evenementsOutbox("reservation.creee");
+    expect(evt?.payload).toMatchObject({
+      nuitees: [
+        { nuit: jour(10), tarifApplique: 120_000, saison: "Fêtes" },
+        { nuit: jour(11), tarifApplique: 80_000, saison: null },
+      ],
+    });
   });
 });

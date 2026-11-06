@@ -37,11 +37,21 @@ export type SnapshotSejour = {
   dateDepart: string;
   nbNuits: number;
   montantTotal: number;
+  // Détail par nuit ("2030-10-10", prix, nom de la saison). Absent dans un ancien événement.
+  nuitees?: NuiteeFacturee[] | undefined;
 };
 
-// « Suite Senior – 3 nuits » : si les nuits n'ont pas toutes le même tarif (saisons),
+export type NuiteeFacturee = { nuit: string; tarifApplique: number; saison: string | null };
+
+const lendemain = (jour: string) => {
+  const d = new Date(`${jour}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
+// Ancien format (sans nuitées) : une seule ligne. Si les nuits n'ont pas toutes le même tarif,
 // on facture 1 × le total pour que quantité × prix = montant reste exact.
-function ligneSejour(s: SnapshotSejour) {
+function ligneUnique(s: SnapshotSejour) {
   const parNuit = s.montantTotal / s.nbNuits;
   const regulier = Number.isInteger(parNuit);
   return {
@@ -51,7 +61,49 @@ function ligneSejour(s: SnapshotSejour) {
     montant: s.montantTotal,
     origine: "HEBERGEMENT" as const,
     sourceId: s.reservationId,
+    ordre: 0,
   };
+}
+
+// Lignes d'hébergement d'une facture de séjour : une ligne par groupe de nuits CONSÉCUTIVES
+// au même tarif et de la même saison. Utilisée par les DEUX chemins de création (événement
+// reservation.creee et lecture REST) : ils produisent donc exactement les mêmes lignes.
+export function lignesSejour(s: SnapshotSejour) {
+  const nuits = [...(s.nuitees ?? [])].sort((a, b) => a.nuit.localeCompare(b.nuit));
+  if (nuits.length === 0) return [ligneUnique(s)];
+
+  // Regroupement : on ouvre un nouveau groupe dès que le tarif ou la saison change.
+  const groupes: { debut: string; fin: string; nombre: number; tarif: number; saison: string | null }[] = [];
+  for (const n of nuits) {
+    const courant = groupes.at(-1);
+    if (courant && courant.tarif === n.tarifApplique && courant.saison === n.saison) {
+      courant.nombre += 1;
+      courant.fin = n.nuit;
+    } else {
+      groupes.push({ debut: n.nuit, fin: n.nuit, nombre: 1, tarif: n.tarifApplique, saison: n.saison });
+    }
+  }
+
+  const lignes = groupes.map((g, ordre) => ({
+    libelle:
+      `${s.categorieCode}${g.saison ? ` – ${g.saison}` : ""} – ${g.nombre} nuit(s) du ${g.debut} au ${lendemain(g.fin)}, ` +
+      `chambre ${s.chambreNumero} (${s.reference})`,
+    quantite: g.nombre,
+    prixUnitaire: g.tarif,
+    montant: g.nombre * g.tarif,
+    origine: "HEBERGEMENT" as const,
+    sourceId: s.reservationId,
+    ordre,
+  }));
+
+  // Garde-fou : le détail doit retomber exactement sur le total de la réservation.
+  // Sinon (données incohérentes), on préfère une ligne juste à un détail faux.
+  const somme = lignes.reduce((t, l) => t + l.montant, 0);
+  if (somme !== s.montantTotal) {
+    logger.error({ reservationId: s.reservationId, somme, montantTotal: s.montantTotal }, "nuitées incohérentes : facture sur une ligne");
+    return [ligneUnique(s)];
+  }
+  return lignes;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +125,7 @@ async function emettreDansTransaction(tx: Prisma.TransactionClient, s: SnapshotS
       clientTelephone: s.clientTelephone,
       langue: s.langue,
       montantTotal: s.montantTotal,
-      lignes: { create: [ligneSejour(s)] },
+      lignes: { create: lignesSejour(s) },
     },
   });
 }
@@ -107,6 +159,8 @@ export async function obtenirFactureSejour(reservationId: string) {
     dateDepart: r.dateDepart.slice(0, 10),
     nbNuits: r.nuitees.length,
     montantTotal: r.montantTotal,
+    // Même forme que dans l'événement : la facture est identique quel que soit le chemin
+    nuitees: r.nuitees.map((n) => ({ nuit: n.nuit.slice(0, 10), tarifApplique: n.tarifApplique, saison: n.saison?.nom.fr ?? null })),
   };
   try {
     return await prisma.$transaction((tx) => emettreDansTransaction(tx, snapshot));
@@ -327,7 +381,7 @@ export async function traiterConsommationImputee(evt: Enveloppe<"consommation.im
       return;
     }
     const deja = await tx.ligneFacture.findUnique({
-      where: { origine_sourceId: { origine: "RESTAURANT", sourceId: c.commandeId } },
+      where: { origine_sourceId_ordre: { origine: "RESTAURANT", sourceId: c.commandeId, ordre: 0 } },
     });
     if (deja) return; // même commande imputée deux fois : sans effet
 
