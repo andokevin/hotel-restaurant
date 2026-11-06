@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { hacherMotDePasse } from "../mot-de-passe.js";
-import { email, telephone } from "../modules/utilisateur/utilisateur.schema.js";
+import { email } from "../modules/utilisateur/utilisateur.schema.js";
+import { telephone} from  "@hotel/commun";
 
 // Crée le premier compte ADMIN (personne ne peut le créer via l'API, puisqu'il faut déjà être ADMIN).
 // Usage :

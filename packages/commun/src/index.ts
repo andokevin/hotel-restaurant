@@ -12,3 +12,4 @@ export type { Job, Worker } from "bullmq";
 export { UnrecoverableError } from "bullmq";
 export * from "./temps.js";
 export * from "./outbox.js";
+export * from "./telephone.js";

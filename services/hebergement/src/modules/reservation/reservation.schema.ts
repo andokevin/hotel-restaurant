@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { aujourdhuiMadagascar } from "@hotel/commun";
+import { aujourdhuiMadagascar, telephone } from "@hotel/commun";
 
 // Décision D3 : le client choisit une CATÉGORIE, le serveur choisit la chambre.
 export const creerReservationSchema = z
   .object({
     categorieId: z.uuid(),
     clientNom: z.string().trim().min(2).max(100),
-    clientTelephone: z.string().regex(/^0(32|33|34|37|38)\d{7}$/, "Numéro malgache invalide"),
+    clientTelephone: telephone,
     // Obligatoire : le reçu et la confirmation partent par email
     clientEmail: z.string().trim().toLowerCase().pipe(z.email("Email invalide")),
     pieceIdentiteType: z.enum(["CIN", "PASSEPORT"]),
