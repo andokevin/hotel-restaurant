@@ -1,8 +1,21 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../auth/AuthContext";
-import { MENU_DU_ROLE } from "../auth/roles";
+import { MENU_DU_ROLE, type LienMenu } from "../auth/roles";
 import { libelle } from "../lib/format";
+import { CLE_ANOMALIES, lireAnomalies } from "../pages/comptable/Anomalies";
+
+// Pastille « nombre à traiter » d'un lien du menu (rien si 0).
+function Compteur({ nombre }: { nombre: number | undefined }) {
+  if (!nombre) return null;
+  return (
+    <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">
+      {nombre}
+      <span className="sr-only"> à traiter</span>
+    </span>
+  );
+}
 
 // Gabarit commun : en-tête (marque + compte), barre de navigation du rôle connecté, puis la page.
 export function Layout() {
@@ -15,6 +28,16 @@ export function Layout() {
   useEffect(() => setMenuOuvert(false), [pathname]);
 
   const liens = utilisateur ? MENU_DU_ROLE[utilisateur.role] : [];
+
+  // Le compteur n'est demandé au serveur que si le menu du rôle en affiche un (comptable, admin).
+  const avecAnomalies = liens.some((l) => l.compteur === "anomalies");
+  const anomalies = useQuery({
+    queryKey: CLE_ANOMALIES,
+    queryFn: lireAnomalies,
+    enabled: avecAnomalies,
+    refetchInterval: 60_000,
+  });
+  const compteur = (l: LienMenu) => (l.compteur === "anomalies" ? anomalies.data?.length : undefined);
 
   const seDeconnecter = async () => {
     await deconnecter();
@@ -94,6 +117,7 @@ export function Layout() {
               {liens.map((l) => (
                 <NavLink key={l.vers} to={l.vers} className={classeOnglet}>
                   {l.libelle}
+                  <Compteur nombre={compteur(l)} />
                 </NavLink>
               ))}
             </div>
@@ -111,6 +135,7 @@ export function Layout() {
             {liens.map((l) => (
               <NavLink key={l.vers} to={l.vers} className={classeLienMobile}>
                 {l.libelle}
+                <Compteur nombre={compteur(l)} />
               </NavLink>
             ))}
             {utilisateur ? (

@@ -11,7 +11,8 @@ export const ESPACE_DU_ROLE: Record<Role, string> = {
   ADMIN: "/admin/comptes",
 };
 
-export type LienMenu = { vers: string; libelle: string };
+// compteur : le menu affiche à côté du lien le nombre d'éléments à traiter (ex. anomalies de paiement)
+export type LienMenu = { vers: string; libelle: string; compteur?: "anomalies" };
 
 // Menu de navigation affiché dans l'en-tête selon le rôle.
 // L'ADMIN voit en plus les espaces métier (il a les droits sur la plupart des routes).
@@ -41,6 +42,7 @@ export const MENU_DU_ROLE: Record<Role, LienMenu[]> = {
     { vers: "/comptable/reversements", libelle: "Reversements" },
     { vers: "/comptable/factures", libelle: "Copies de factures" },
     { vers: "/comptable/stock", libelle: "Stock" },
+    { vers: "/comptable/anomalies", libelle: "Anomalies de paiement", compteur: "anomalies" },
   ],
   ADMIN: [
     { vers: "/admin/comptes", libelle: "Comptes" },
@@ -49,6 +51,7 @@ export const MENU_DU_ROLE: Record<Role, LienMenu[]> = {
     { vers: "/admin/articles", libelle: "Articles" },
     { vers: "/reception/reservations", libelle: "Réception" },
     { vers: "/comptable/tableaux", libelle: "Comptabilité" },
+    { vers: "/comptable/anomalies", libelle: "Anomalies", compteur: "anomalies" },
     { vers: "/restaurant/menus", libelle: "Menus" },
     { vers: "/communication", libelle: "Communication" },
   ],
