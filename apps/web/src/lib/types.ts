@@ -110,6 +110,7 @@ export type LigneFacture = {
   prixUnitaire: number;
   montant: number;
   origine: "HEBERGEMENT" | "RESTAURANT";
+  ordre?: number; // rang de la ligne pour une même source (séjour : un groupe de nuitées par ligne)
 };
 
 export type Facture = {
