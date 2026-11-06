@@ -80,6 +80,8 @@ export type Reservation = {
   clientNom?: string;
   clientTelephone?: string;
   clientEmail?: string;
+  nbAdultes?: number;
+  nbEnfants?: number;
   canal?: CanalReservation;
   categorieId?: string;
   chambreId?: string | null;

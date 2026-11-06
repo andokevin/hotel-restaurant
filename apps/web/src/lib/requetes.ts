@@ -1,10 +1,16 @@
 // Lectures partagées par plusieurs écrans (même clé de cache = une seule requête réseau).
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import type { Article, Categorie, Chambre, EtatMenage, Menu } from "./types";
 
-export const useCategories = () =>
-  useQuery({ queryKey: ["categories"], queryFn: () => api.get<Categorie[]>("/categories") });
+// Avec `personnes` : seulement les catégories assez grandes (filtre fait par le serveur).
+// keepPreviousData : la liste précédente reste affichée pendant le rechargement (pas de clignotement).
+export const useCategories = (personnes?: number) =>
+  useQuery({
+    queryKey: ["categories", personnes ?? "toutes"],
+    queryFn: () => api.get<Categorie[]>("/categories" + (personnes ? `?personnes=${personnes}` : "")),
+    placeholderData: keepPreviousData,
+  });
 
 export const useMenusPublies = () =>
   useQuery({ queryKey: ["menus", "publies"], queryFn: () => api.get<Menu[]>("/menus/publies") });
