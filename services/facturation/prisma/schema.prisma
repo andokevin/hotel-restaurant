@@ -37,6 +37,8 @@ enum StatutPaiement {
   // Ajout au modèle : argent reçu mais incohérent (montant différent, facture déjà soldée,
   // paiement arrivé sur un lien remplacé). À traiter à la main (remboursement).
   ANOMALIE
+  // Anomalie traitée : l'argent a été rendu au client (dans le tableau de bord Papi).
+  REMBOURSE
 }
 
 enum MethodePaiement {
@@ -124,6 +126,10 @@ model Paiement {
   // Le client est revenu de Papi avec ce lien (page de retour) : le lien est peut-être consommé,
   // on ne le réutilise plus. Ce n'est JAMAIS une preuve de paiement (seule la notification l'est).
   visiteLe              DateTime?        @map("visite_le") @db.Timestamptz
+  // Traitement d'une ANOMALIE par le comptable : qui, quand, pourquoi (remboursé ou accepté)
+  traiteLe              DateTime?        @map("traite_le") @db.Timestamptz
+  traitePar             String?          @map("traite_par") @db.Uuid // auth, sans FK
+  commentaire           String?
 
   facture Facture @relation(fields: [factureId], references: [id])
 
