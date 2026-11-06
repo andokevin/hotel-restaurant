@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { z } from "zod";
 import { useAuth } from "../../auth/AuthContext";
+import { lireDepuis } from "../../auth/depuis";
 import { ESPACE_DU_ROLE } from "../../auth/roles";
 import { Alerte, Bouton, Carte, Champ, classeInput } from "../../components/ui";
 import { ApiError, messageErreur } from "../../lib/api";
@@ -32,9 +33,7 @@ export function Connexion() {
   const { register, handleSubmit, formState } = useForm<Formulaire>({ resolver: zodResolver(schema) });
 
   // Page d'où l'on venait (posée par RouteProtegee), sinon l'espace du rôle.
-  const etat: unknown = location.state;
-  const depuis =
-    typeof etat === "object" && etat !== null && "depuis" in etat && typeof etat.depuis === "string" ? etat.depuis : null;
+  const depuis = lireDepuis(location.state);
 
   if (utilisateur) return <Navigate to={ESPACE_DU_ROLE[utilisateur.role]} replace />;
 
@@ -65,7 +64,7 @@ export function Connexion() {
         </form>
         <p className="mt-4 text-center text-sm text-slate-600">
           Pas encore de compte ?{" "}
-          <Link to="/inscription" className="font-medium text-emerald-800 hover:underline">
+          <Link to="/inscription" state={depuis ? { depuis } : undefined} className="font-medium text-emerald-800 hover:underline">
             Créer un compte
           </Link>
         </p>

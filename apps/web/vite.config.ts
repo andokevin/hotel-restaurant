@@ -1,6 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 // En développement, le front (5173) transmet /api à la gateway (3000).
 // Front et API partagent ainsi la même origine : le cookie de session
@@ -15,5 +15,11 @@ export default defineConfig({
     proxy: {
       "/api": { target: "http://localhost:3000", changeOrigin: true },
     },
+  },
+  // Tests des écrans : un faux navigateur (jsdom), sans serveur ni gateway (l'API est simulée).
+  test: {
+    environment: "jsdom",
+    include: ["tests/**/*.test.{ts,tsx}"],
+    setupFiles: ["./tests/preparation.ts"],
   },
 });
