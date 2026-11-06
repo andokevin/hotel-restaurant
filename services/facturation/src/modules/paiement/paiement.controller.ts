@@ -24,3 +24,9 @@ export const notification = async (req: Request, res: Response) => {
 export const detail = async (req: Request, res: Response) => {
   res.json(await service.trouverPaiementPour(lireId(req), identiteRequise(req)));
 };
+
+// Appelée par la page de retour du front : « le client est revenu de Papi avec ce lien ».
+export const retour = async (req: Request, res: Response) => {
+  await service.marquerVisite(lireId(req), identiteRequise(req));
+  res.status(204).end();
+};

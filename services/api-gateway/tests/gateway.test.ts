@@ -144,6 +144,14 @@ describe("Facturation", () => {
     });
   });
 
+  it("retour de Papi (lien visité) : 401 sans jeton, ouvert au client et à la réception (#69)", async () => {
+    const id = "7b1f3c2a-9d4e-4f5a-8b6c-1d2e3f4a5b6c";
+    expect((await request(app).post(`/api/paiements/${id}/retour`)).status).toBe(401);
+    expect((await avecJeton(request(app).post(`/api/paiements/${id}/retour`), "CLIENT")).status).toBe(200);
+    expect((await avecJeton(request(app).post(`/api/paiements/${id}/retour`), "RECEPTIONNISTE")).status).toBe(200);
+    expect((await avecJeton(request(app).post(`/api/paiements/${id}/retour`), "FEMME_MENAGE")).status).toBe(403);
+  });
+
   it("encaisser : réception ou restaurant, pas un client ; clôturer : réception", async () => {
     const id = "7b1f3c2a-9d4e-4f5a-8b6c-1d2e3f4a5b6c";
     expect((await avecJeton(request(app).post(`/api/factures/${id}/encaissements`), "CLIENT")).status).toBe(403);

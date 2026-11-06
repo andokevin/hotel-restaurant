@@ -57,6 +57,8 @@ export const REGLES: readonly Regle[] = [
   // jeton secret de son URL (vérifié par facturation) puis par le notificationToken (worker).
   { methode: "post", chemin: "/paiements/notification", service: "facturation", acces: "PUBLIC" },
   { methode: "get", chemin: "/paiements/:id", service: "facturation", acces: ["CLIENT", ...PERSONNEL_CAISSE] },
+  // Retour du client depuis Papi : le lien ne sera plus réutilisé (facturation vérifie l'appartenance).
+  { methode: "post", chemin: "/paiements/:id/retour", service: "facturation", acces: ["CLIENT", ...RECEPTION] },
   { methode: "get", chemin: "/factures", service: "facturation", acces: PERSONNEL_CAISSE },
   { methode: "get", chemin: "/factures/mes-factures", service: "facturation", acces: ["CLIENT"] }, // avant ":id"
   { methode: "get", chemin: "/factures/:id", service: "facturation", acces: ["CLIENT", ...PERSONNEL_CAISSE] },
