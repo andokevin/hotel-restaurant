@@ -4,10 +4,19 @@ import { DetailFacture } from "../../components/DetailFacture";
 import { FormulaireEncaissement } from "../../components/Encaissement";
 import { Alerte, Badge, Bouton, Carte, Chargement, Donnees, MessageErreur, Modale, ModaleConfirmation, TitrePage, classeInput } from "../../components/ui";
 import { ApiError, api, messageErreur, qs } from "../../lib/api";
+import { libelleAttente, minutesEcoulees, SEUIL_RETARD_MIN, useMaintenant } from "../../lib/attente";
 import { ariary, libelle } from "../../lib/format";
 import type { Commande, Facture, StatutCommande } from "../../lib/types";
 
 const STATUTS: StatutCommande[] = ["RECUE", "EN_PREPARATION", "PRETE", "REMISE", "ANNULEE"];
+
+// Les étapes de la cuisine, dans l'ordre : une colonne chacune dans la vue « En cours ».
+const EN_COURS: { statut: StatutCommande; titre: string }[] = [
+  { statut: "RECUE", titre: "Reçues" },
+  { statut: "EN_PREPARATION", titre: "En préparation" },
+  { statut: "PRETE", titre: "Prêtes" },
+];
+const estEnCours = (s: StatutCommande) => EN_COURS.some((e) => e.statut === s);
 
 // Étape suivante possible pour chaque statut (circuit cuisine → service).
 const SUIVANT: Partial<Record<StatutCommande, { statut: StatutCommande; action: string }>> = {
@@ -16,10 +25,17 @@ const SUIVANT: Partial<Record<StatutCommande, { statut: StatutCommande; action: 
   PRETE: { statut: "REMISE", action: "Marquer remise au client" },
 };
 
-export function SuiviCommandes() {
-  const [statut, setStatut] = useState("");
-  const [factureOuverte, setFactureOuverte] = useState<string | null>(null);
+// "EN_COURS" (par défaut, pour la cuisine), "" (toutes) ou un statut précis (historique).
+type Vue = "EN_COURS" | "" | StatutCommande;
 
+export function SuiviCommandes() {
+  const [vue, setVue] = useState<Vue>("EN_COURS");
+  const [factureOuverte, setFactureOuverte] = useState<string | null>(null);
+  const maintenant = useMaintenant();
+
+  // La vue « En cours » lit les dernières commandes et garde celles à préparer ou à servir ;
+  // l'historique demande un statut précis au serveur.
+  const statut = vue === "EN_COURS" ? "" : vue;
   const commandes = useQuery({
     queryKey: ["commandes", statut],
     queryFn: () => api.get<Commande[]>("/commandes" + qs({ statut })),
@@ -30,8 +46,9 @@ export function SuiviCommandes() {
     <div>
       <TitrePage>Suivi des commandes</TitrePage>
       <div className="mb-4 max-w-xs">
-        <select className={classeInput} value={statut} onChange={(e) => setStatut(e.target.value)} aria-label="Filtrer par statut">
-          <option value="">Tous les statuts</option>
+        <select className={classeInput} value={vue} onChange={(e) => setVue(e.target.value as Vue)} aria-label="Afficher">
+          <option value="EN_COURS">En cours (cuisine)</option>
+          <option value="">Toutes les commandes</option>
           {STATUTS.map((s) => (
             <option key={s} value={s}>
               {libelle(s)}
@@ -41,13 +58,35 @@ export function SuiviCommandes() {
       </div>
 
       <Donnees requete={commandes} texteVide="Aucune commande.">
-        {(liste) => (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {liste.map((c) => (
-              <CarteCommande key={c.id} commande={c} onFacture={setFactureOuverte} />
-            ))}
-          </div>
-        )}
+        {(liste) =>
+          vue === "EN_COURS" ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              {EN_COURS.map(({ statut: etape, titre }) => {
+                // La plus ancienne en premier : c'est elle que la cuisine doit traiter d'abord.
+                const colonne = liste
+                  .filter((c) => c.statut === etape)
+                  .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+                return (
+                  <div key={etape} className="space-y-3">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+                      {titre} ({colonne.length})
+                    </h2>
+                    {colonne.length === 0 && <p className="text-sm text-slate-400">Aucune</p>}
+                    {colonne.map((c) => (
+                      <CarteCommande key={c.id} commande={c} maintenant={maintenant} onFacture={setFactureOuverte} />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {liste.map((c) => (
+                <CarteCommande key={c.id} commande={c} maintenant={maintenant} onFacture={setFactureOuverte} />
+              ))}
+            </div>
+          )
+        }
       </Donnees>
 
       {factureOuverte && <ModaleEncaissement factureId={factureOuverte} onFermer={() => setFactureOuverte(null)} />}
@@ -55,8 +94,18 @@ export function SuiviCommandes() {
   );
 }
 
-function CarteCommande({ commande, onFacture }: { commande: Commande; onFacture: (factureId: string) => void }) {
+function CarteCommande({
+  commande,
+  maintenant,
+  onFacture,
+}: {
+  commande: Commande;
+  maintenant: number;
+  onFacture: (factureId: string) => void;
+}) {
   const c = commande;
+  const attente = minutesEcoulees(c.createdAt, maintenant);
+  const enRetard = estEnCours(c.statut) && attente > SEUIL_RETARD_MIN;
   const queryClient = useQueryClient();
   const [chambre, setChambre] = useState("");
   const [imputation, setImputation] = useState(false);
@@ -108,6 +157,10 @@ function CarteCommande({ commande, onFacture }: { commande: Commande; onFacture:
         {libelle(c.canal)}
         {c.tableNumero ? ` · table ${c.tableNumero}` : ""}
         {c.clientNom ? ` · ${c.clientNom}` : ""}
+      </p>
+      <p className={`mt-1 flex items-center gap-2 text-xs ${enRetard ? "font-semibold text-red-700" : "text-slate-500"}`}>
+        <span>{libelleAttente(attente)}</span>
+        {enRetard && <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-800">En retard</span>}
       </p>
       <ul className="my-2 text-sm">
         {c.lignes.map((l, i) => (
