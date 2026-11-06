@@ -92,7 +92,33 @@ export type Reservation = {
 };
 
 // --- Facturation ---
-export type StatutPaiement = "EN_ATTENTE" | "REUSSI" | "ECHOUE" | "ANOMALIE";
+export type StatutPaiement = "EN_ATTENTE" | "REUSSI" | "ECHOUE" | "ANOMALIE" | "REMBOURSE";
+
+// Anomalie de paiement : argent débité chez le client mais non compté (GET /paiements/anomalies).
+// La situation est calculée par le serveur selon l'état ACTUEL de la facture.
+export type SituationAnomalie = "A_REMBOURSER" | "A_ACCEPTER";
+export type Anomalie = {
+  id: string;
+  montant: number; // montant demandé à Papi
+  montantRecu: number | null; // montant annoncé par Papi
+  methode: string | null;
+  referenceExterne: string | null; // référence Papi : indispensable pour rembourser
+  raison: string | null;
+  createdAt: string;
+  situation: SituationAnomalie;
+  facture: {
+    id: string;
+    numero: string;
+    clientNom: string;
+    clientTelephone: string | null;
+    clientEmail: string | null;
+    statut: StatutFacture;
+    montantTotal: number;
+    montantPaye: number;
+    resteAPayer: number;
+    paiements: { id: string; montant: number; statut: StatutPaiement; methode: string | null; createdAt: string; erreur: string | null }[];
+  };
+};
 export type StatutFacture = "EMISE" | "PAYEE" | "CLOTUREE" | "ANNULEE";
 
 export type ReponseCreationPaiement = { paiementId: string; url: string; montant: number };

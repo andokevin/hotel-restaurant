@@ -69,6 +69,9 @@ export const LIBELLES: Record<string, string> = {
   REUSSI: "Réussi",
   ECHOUE: "Échoué",
   ANOMALIE: "Anomalie",
+  REMBOURSE: "Remboursé",
+  A_REMBOURSER: "À rembourser",
+  A_ACCEPTER: "À accepter",
   // Tâches
   A_FAIRE: "À faire",
   QUOTIDIEN: "Quotidien",

@@ -11,6 +11,7 @@ import { MesReservations } from "./pages/client/MesReservations";
 import { PaiementRetour } from "./pages/client/PaiementRetour";
 import { Reserver } from "./pages/client/Reserver";
 import { Communication } from "./pages/communication/Communication";
+import { Anomalies } from "./pages/comptable/Anomalies";
 import { CopiesFactures } from "./pages/comptable/CopiesFactures";
 import { Reversements } from "./pages/comptable/Reversements";
 import { Stock } from "./pages/comptable/Stock";
@@ -85,6 +86,7 @@ export function App() {
           <Route path="comptable/reversements" element={<Reversements />} />
           <Route path="comptable/factures" element={<CopiesFactures />} />
           <Route path="comptable/stock" element={<Stock />} />
+          <Route path="comptable/anomalies" element={<Anomalies />} />
         </Route>
 
         {/* Administration */}
