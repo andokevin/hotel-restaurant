@@ -17,7 +17,14 @@ const reservationSchema = z.object({
   dateArrivee: z.iso.datetime(),
   dateDepart: z.iso.datetime(),
   chambre: z.object({ numero: z.string(), categorie: z.object({ code: z.string() }) }),
-  nuitees: z.array(z.unknown()),
+  // Détail par nuit, pour une facture identique à celle émise par l'événement reservation.creee
+  nuitees: z.array(
+    z.object({
+      nuit: z.iso.datetime(),
+      tarifApplique: z.number().int().nonnegative(),
+      saison: z.object({ nom: z.object({ fr: z.string() }) }).nullable(),
+    }),
+  ),
 });
 
 export type ReservationLue = z.infer<typeof reservationSchema>;

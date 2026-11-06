@@ -116,13 +116,18 @@ async function calculerNuitees(categorie: { id: string; tarifNuit: number }, arr
   return nuits.map((nuit) => {
     const saison = saisons.find((s) => nuit >= s.dateDebut && nuit <= s.dateFin);
     const tarifSaison = saison?.tarifs[0]?.tarifNuit;
+    const appliquee = saison && tarifSaison !== undefined ? saison : null;
     return {
       nuit,
       tarifApplique: tarifSaison ?? categorie.tarifNuit,
-      saisonId: saison && tarifSaison !== undefined ? saison.id : null,
+      saisonId: appliquee?.id ?? null,
+      saisonNom: appliquee ? nomSaison(appliquee.nom) : null,
     };
   });
 }
+
+// Saison.nom est un JSON multilingue { fr, mg?, en? } : la facture garde le nom français.
+const nomSaison = (nom: unknown): string | null => z.object({ fr: z.string() }).safeParse(nom).data?.fr ?? null;
 
 // Même Idempotency-Key déjà vue : on renvoie la réservation créée la première fois.
 async function relireIdempotence(cle: string, identite: Identite) {
@@ -198,7 +203,9 @@ export async function creerReservation(data: CreerReservationDTO, identite: Iden
             expireLe,
           },
         });
-        await tx.reservationNuitee.createMany({ data: nuitees.map((n) => ({ ...n, reservationId: r.id })) });
+        await tx.reservationNuitee.createMany({
+          data: nuitees.map(({ nuit, tarifApplique, saisonId }) => ({ nuit, tarifApplique, saisonId, reservationId: r.id })),
+        });
 
         // Même transaction : l'événement existe si et seulement si la réservation existe.
         await ecrireEvenement(tx, "reservation.creee", {
@@ -218,6 +225,7 @@ export async function creerReservation(data: CreerReservationDTO, identite: Iden
           nbEnfants: r.nbEnfants,
           montantTotal,
           expireLe: expireLe.toISOString(),
+          nuitees: nuitees.map((n) => ({ nuit: enTexte(n.nuit), tarifApplique: n.tarifApplique, saison: n.saisonNom })),
         });
 
         if (cle) {
