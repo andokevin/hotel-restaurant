@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useAuth } from "../../auth/AuthContext";
 import { BoutonPayer } from "../../components/BoutonPayer";
@@ -16,11 +16,27 @@ const DUREE_MAX_MS = 60_000;
 // IMPORTANT : l'adresse de retour ne PROUVE RIEN (n'importe qui peut taper cette URL).
 // Seul le serveur sait si le paiement a réussi (il reçoit la notification de Papi).
 // On interroge donc GET /paiements/:id toutes les 2 s, pendant 60 s au plus.
+//
+// Avant cela, on signale au serveur que le client revient de Papi (POST /paiements/:id/retour) :
+// ce lien a peut-être été consommé, « Réessayer » en obtiendra un NOUVEAU même dans les 30 s.
 export function PaiementRetour() {
   const [params] = useSearchParams();
   const { utilisateur } = useAuth();
   const paiementId = params.get("paiement");
   const echecAnnonce = params.get("echec") === "1";
+
+  // Signalement envoyé UNE fois (le ref évite le double envoi du mode strict de React).
+  // Une erreur est ignorée : elle ne doit jamais empêcher d'afficher le résultat.
+  const signale = useRef(false);
+  const [retourSignale, setRetourSignale] = useState(false);
+  useEffect(() => {
+    if (!paiementId || signale.current) return;
+    signale.current = true;
+    api
+      .post(`/paiements/${encodeURIComponent(paiementId)}/retour`)
+      .catch(() => {})
+      .finally(() => setRetourSignale(true));
+  }, [paiementId]);
   const [debut] = useState(() => Date.now());
   // Passe à true au bout de 60 s : on arrête alors d'afficher « en attente… ».
   const [delaiDepasse, setDelaiDepasse] = useState(false);
@@ -32,7 +48,7 @@ export function PaiementRetour() {
   const paiement = useQuery({
     queryKey: ["paiements", paiementId],
     queryFn: () => api.get<Paiement>(`/paiements/${encodeURIComponent(paiementId ?? "")}`),
-    enabled: Boolean(paiementId),
+    enabled: Boolean(paiementId) && retourSignale, // le statut est lu APRÈS le signalement
     // On continue d'interroger tant que le paiement est EN_ATTENTE et que les 60 s ne sont pas écoulées.
     refetchInterval: (query) => {
       const statut = query.state.data?.statut;

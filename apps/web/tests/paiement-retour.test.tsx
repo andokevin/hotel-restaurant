@@ -38,10 +38,37 @@ const afficher = () =>
     </QueryClientProvider>,
   );
 
+// POST /paiements/:id/retour répond 204 ; une demande de lien (POST /paiements) ne répond jamais :
+// la redirection vers Papi n'a pas lieu pendant le test.
+const posterParDefaut = (chemin: string) => (chemin.endsWith("/retour") ? Promise.resolve(undefined) : new Promise(() => {}));
+
+describe("Résultat du paiement : signaler le lien visité (#94)", () => {
+  beforeEach(() => {
+    lire.mockReset().mockResolvedValue(paiement({ statut: "ECHOUE" }));
+    poster.mockReset().mockImplementation(posterParDefaut);
+  });
+
+  it("signale le retour UNE fois, AVANT de lire le statut", async () => {
+    afficher();
+
+    await screen.findByRole("button", { name: "Réessayer le paiement" });
+    expect(poster).toHaveBeenCalledTimes(1);
+    expect(poster).toHaveBeenCalledWith("/paiements/p1/retour");
+    expect(poster.mock.invocationCallOrder[0]).toBeLessThan(lire.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it("une erreur du signalement ne bloque pas l'affichage du résultat", async () => {
+    poster.mockImplementation((chemin: string) => (chemin.endsWith("/retour") ? Promise.reject(new Error("réseau")) : new Promise(() => {})));
+    afficher();
+
+    expect(await screen.findByText(/a échoué/)).toBeTruthy();
+  });
+});
+
 describe("Résultat du paiement : réessayer après un échec (#82)", () => {
   beforeEach(() => {
     lire.mockReset();
-    poster.mockReset().mockReturnValue(new Promise(() => {})); // la redirection vers Papi n'a pas lieu
+    poster.mockReset().mockImplementation(posterParDefaut);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -85,6 +112,7 @@ describe("Résultat du paiement : réessayer après un échec (#82)", () => {
     lire.mockResolvedValue(paiement({ statut: "EN_ATTENTE" }));
     afficher();
 
+    await act(() => vi.advanceTimersByTimeAsync(100)); // signalement du retour puis 1re lecture du statut
     await act(() => vi.advanceTimersByTimeAsync(61_000));
 
     expect(screen.getByText(/toujours pas confirmé/)).toBeTruthy();
