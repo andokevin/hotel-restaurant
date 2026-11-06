@@ -118,6 +118,9 @@ model Paiement {
   erreur                String?
   createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  // Le client est revenu de Papi avec ce lien (page de retour) : le lien est peut-être consommé,
+  // on ne le réutilise plus. Ce n'est JAMAIS une preuve de paiement (seule la notification l'est).
+  visiteLe              DateTime?        @map("visite_le") @db.Timestamptz
 
   facture Facture @relation(fields: [factureId], references: [id])
 

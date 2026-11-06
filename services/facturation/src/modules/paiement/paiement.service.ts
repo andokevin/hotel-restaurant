@@ -65,10 +65,13 @@ export async function demanderPaiement(demande: DemandePaiementDTO, identite: Id
   const montant = facture.montantTotal - facture.montantPaye;
   if (montant < MONTANT_MINIMUM) throw RegleMetier(`Montant trop faible pour un paiement en ligne (minimum ${MONTANT_MINIMUM} Ar)`);
 
-  // Un lien en attente, pour le même montant et créé il y a moins de 30 s : on le renvoie (double clic, retour arrière).
+  // Un lien en attente, pour le même montant, créé il y a moins de 30 s ET jamais visité : on le renvoie
+  // (double clic, retour arrière). Un lien VISITÉ (le client est revenu de Papi) est peut-être consommé :
+  // même récent, on le remplace.
   const enAttente = await prisma.paiement.findFirst({ where: { factureId: facture.id, statut: "EN_ATTENTE" } });
   const recent = enAttente !== null && Date.now() - enAttente.createdAt.getTime() < REUTILISATION_LIEN_MS;
-  if (enAttente?.urlPaiement && enAttente.montant === montant && recent) {
+  const reutilisable = recent && enAttente.visiteLe === null;
+  if (enAttente?.urlPaiement && enAttente.montant === montant && reutilisable) {
     return { paiementId: enAttente.id, url: enAttente.urlPaiement, montant };
   }
   if (enAttente) {
@@ -290,4 +293,13 @@ export async function trouverPaiementPour(id: string, identite: Identite) {
   if (!p || (identite.role === "CLIENT" && p.facture.clientId !== identite.id)) throw NotFound("Paiement");
   const { facture, ...paiement } = p;
   return { ...paiement, facture: { numero: facture.numero, statut: facture.statut } };
+}
+
+// Retour du client depuis Papi (page /paiement/retour) : ce lien a été utilisé, ne plus le réutiliser.
+// ⚠️ L'URL de retour n'est PAS une preuve de paiement (n'importe qui peut l'ouvrir) : on ne touche
+// jamais au statut ici. Seule la notification authentifiée de Papi change le statut.
+export async function marquerVisite(id: string, identite: Identite): Promise<void> {
+  await trouverPaiementPour(id, identite); // même contrôle d'accès : 404 pour le paiement d'un autre
+  // Condition DANS l'écriture : si visiteLe est déjà rempli, 0 ligne modifiée, la 1re date est gardée.
+  await prisma.paiement.updateMany({ where: { id, visiteLe: null }, data: { visiteLe: new Date() } });
 }
