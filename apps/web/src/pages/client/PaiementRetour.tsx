@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useAuth } from "../../auth/AuthContext";
-import { Alerte, Badge, Carte, Chargement, MessageErreur, TitrePage } from "../../components/ui";
+import { BoutonPayer } from "../../components/BoutonPayer";
+import { Alerte, Badge, Carte, Chargement, classeBouton, MessageErreur, TitrePage } from "../../components/ui";
 import { api } from "../../lib/api";
 import { ariary, libelle } from "../../lib/format";
 import type { Paiement } from "../../lib/types";
@@ -41,7 +42,8 @@ export function PaiementRetour() {
     },
   });
 
-  const lienRetour = utilisateur?.role === "CLIENT" ? "/client/reservations" : "/";
+  const estClient = utilisateur?.role === "CLIENT";
+  const lienRetour = estClient ? "/client/reservations" : "/";
 
   if (!paiementId) {
     return (
@@ -74,16 +76,37 @@ export function PaiementRetour() {
             )}
 
             {p.statut === "REUSSI" && <Alerte type="succes">Paiement confirmé. Merci ! Votre réservation est confirmée.</Alerte>}
-            {p.statut === "ECHOUE" && <Alerte>Le paiement a échoué. Vous pouvez réessayer depuis vos réservations.</Alerte>}
+            {p.statut === "ECHOUE" && (
+              <>
+                <Alerte>Le paiement a échoué. Aucun montant n'a été encaissé.</Alerte>
+                {/* Seulement si la facture attend encore de l'argent : elle a pu être soldée autrement (espèces, autre lien).
+                    Le serveur crée un NOUVEAU lien (l'ancien a peut-être été consommé chez Papi). */}
+                {p.facture?.statut === "EMISE" && (
+                  <BoutonPayer cible={{ factureId: p.factureId }} libelleBouton="Réessayer le paiement" />
+                )}
+                {estClient && (
+                  <Link to="/client/reservations" className="inline-block font-medium text-emerald-800 hover:underline">
+                    Mes réservations
+                  </Link>
+                )}
+              </>
+            )}
             {p.statut === "ANOMALIE" && (
               <Alerte>Une anomalie a été détectée sur ce paiement. Contactez la réception de l'hôtel.</Alerte>
             )}
             {p.statut === "EN_ATTENTE" &&
               (delaiDepasse ? (
-                <Alerte type="attention">
-                  Le paiement n'est toujours pas confirmé. Il peut encore aboutir : consultez vos réservations dans
-                  quelques minutes.
-                </Alerte>
+                <>
+                  <Alerte type="attention">
+                    Le paiement n'est toujours pas confirmé. Il peut encore aboutir : consultez vos réservations dans
+                    quelques minutes.
+                  </Alerte>
+                  {estClient && (
+                    <Link to="/client/reservations" className={classeBouton("primaire", "normal")}>
+                      Voir mes réservations
+                    </Link>
+                  )}
+                </>
               ) : (
                 <Chargement texte={echecAnnonce ? "Papi signale un problème, vérification en cours…" : "Paiement en attente de confirmation…"} />
               ))}

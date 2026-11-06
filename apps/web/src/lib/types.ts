@@ -97,6 +97,7 @@ export type ReponseCreationPaiement = { paiementId: string; url: string; montant
 
 export type Paiement = {
   id: string;
+  factureId: string;
   montant: number;
   statut: StatutPaiement;
   methode: string | null; // inconnue tant que Papi n'a pas confirmé
