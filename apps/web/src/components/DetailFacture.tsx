@@ -1,6 +1,15 @@
 import { ariary, dateHeure, libelle } from "../lib/format";
-import type { Facture } from "../lib/types";
-import { Badge, classeTd, classeTh } from "./ui";
+import type { Facture, LigneFacture } from "../lib/types";
+import { Badge } from "./ui";
+
+// Ordre d'affichage : le séjour d'abord, groupe de nuitées par groupe (ordre), puis les consommations.
+const RANG_ORIGINE: Record<LigneFacture["origine"], number> = { HEBERGEMENT: 0, RESTAURANT: 1 };
+const trierLignes = (lignes: LigneFacture[]) =>
+  [...lignes].sort((a, b) => RANG_ORIGINE[a.origine] - RANG_ORIGINE[b.origine] || (a.ordre ?? 0) - (b.ordre ?? 0));
+
+// Le libellé d'un groupe de nuitées nomme sa saison : « STANDARD – Haute saison – 1 nuit(s) du … ».
+const saisonDuLibelle = (l: LigneFacture): string | null =>
+  l.origine === "HEBERGEMENT" ? (/^\S+ – (.+?) – \d+ nuit/.exec(l.libelle)?.[1] ?? null) : null;
 
 // Contenu d'une facture : lignes, paiements et reste à payer. Les actions sont ajoutées par l'écran appelant.
 export function DetailFacture({ facture }: { facture: Facture }) {
@@ -17,31 +26,28 @@ export function DetailFacture({ facture }: { facture: Facture }) {
         </span>
       </div>
 
+      {/* Une liste plutôt qu'un tableau à 5 colonnes : lisible sur un téléphone de 360 px sans défilement horizontal. */}
       {f.lignes && f.lignes.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="border-b border-slate-200">
-              <tr>
-                <th className={classeTh}>Libellé</th>
-                <th className={classeTh}>Origine</th>
-                <th className={`${classeTh} text-right`}>Qté</th>
-                <th className={`${classeTh} text-right`}>Prix unitaire</th>
-                <th className={`${classeTh} text-right`}>Montant</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {f.lignes.map((l, i) => (
-                <tr key={i}>
-                  <td className={classeTd}>{l.libelle}</td>
-                  <td className={classeTd}>{l.origine === "HEBERGEMENT" ? "Hébergement" : "Restaurant"}</td>
-                  <td className={`${classeTd} text-right`}>{l.quantite}</td>
-                  <td className={`${classeTd} text-right`}>{ariary(l.prixUnitaire)}</td>
-                  <td className={`${classeTd} text-right`}>{ariary(l.montant)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul aria-label="Lignes de la facture" className="divide-y divide-slate-100 border-y border-slate-200">
+          {trierLignes(f.lignes).map((l, i) => {
+            const saison = saisonDuLibelle(l);
+            return (
+              <li key={i} className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words">{l.libelle}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>{l.origine === "HEBERGEMENT" ? "Hébergement" : "Restaurant"}</span>
+                    <span>
+                      {l.quantite} × {ariary(l.prixUnitaire)}
+                    </span>
+                    {saison && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900">{saison}</span>}
+                  </p>
+                </div>
+                <span className="font-medium whitespace-nowrap">{ariary(l.montant)}</span>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
       <dl className="ml-auto grid max-w-xs grid-cols-2 gap-x-4 gap-y-1">
