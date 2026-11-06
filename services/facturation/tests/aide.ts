@@ -54,6 +54,8 @@ export const reservationCreee = (surcharge: Partial<ContenuEvenement<"reservatio
     dateArrivee: "2030-10-10",
     dateDepart: "2030-10-13",
     nbNuits: 3,
+    nbAdultes: 2,
+    nbEnfants: 0,
     montantTotal: 240_000,
     expireLe: new Date(Date.now() + 30 * 60_000).toISOString(),
     ...surcharge,

@@ -25,6 +25,9 @@ export const CONTRATS = {
     dateArrivee: date,
     dateDepart: date,
     nbNuits: z.number().int().positive(),
+    // Valeurs par défaut : les événements publiés AVANT ce champ (déjà en file) restent valides.
+    nbAdultes: z.number().int().min(1).default(1),
+    nbEnfants: z.number().int().min(0).default(0),
     montantTotal: z.number().int().nonnegative(),
     expireLe: horodatage,
   }),
@@ -121,15 +124,20 @@ export type Enveloppe<T extends TypeEvenement> = {
   payload: ContenuEvenement<T>;
 };
 
-// Prédicat de type : si la fonction renvoie true, TypeScript SAIT que `donnees` est une Enveloppe<T>.
-// (Un schéma Zod construit à partir d'un type générique ne permet pas à TypeScript de déduire
-// le type seul ; le prédicat évite tout cast.) Les contrats n'ont ni valeur par défaut ni
-// transformation : valider suffit, il n'y a rien à convertir.
-export function estEnveloppe<T extends TypeEvenement>(type: T, donnees: unknown): donnees is Enveloppe<T> {
+// Valide une enveloppe reçue et renvoie son contenu PARSÉ (null si invalide).
+// Parsé, et pas seulement validé : certains contrats ont des valeurs par défaut pour les
+// champs ajoutés après coup (ex. nbAdultes de reservation.creee). Un événement publié AVANT
+// l'ajout du champ, encore en file, reçoit ainsi la valeur par défaut au lieu d'undefined.
+export function lireEnveloppe<T extends TypeEvenement>(type: T, donnees: unknown): Enveloppe<T> | null {
   const base = z
     .object({ id: z.uuid(), type: z.literal(type), emisLe: horodatage, payload: z.unknown() })
     .safeParse(donnees);
-  return base.success && CONTRATS[type].safeParse(base.data.payload).success;
+  if (!base.success) return null;
+  const contenu = CONTRATS[type].safeParse(base.data.payload);
+  if (!contenu.success) return null;
+  // Un schéma choisi par un type générique (CONTRATS[T]) : TypeScript ne sait pas relier
+  // son résultat à ContenuEvenement<T> tout seul. Le cast est sûr : c'est le même schéma.
+  return { id: base.data.id, type, emisLe: base.data.emisLe, payload: contenu.data as ContenuEvenement<T> };
 }
 
 export const estTypeEvenement = (t: string): t is TypeEvenement => t in CONTRATS;

@@ -3,7 +3,7 @@ import { Redis } from "ioredis";
 import type { Logger } from "pino";
 import {
   ABONNEMENTS,
-  estEnveloppe,
+  lireEnveloppe,
   estTypeEvenement,
   nomFile,
   type Consommateur,
@@ -69,9 +69,9 @@ export class BusEvenements {
     const worker = new Worker(
       nomFile(consommateur, type),
       async (job: Job) => {
-        const donnees: unknown = job.data;
-        if (!estEnveloppe(type, donnees)) throw new UnrecoverableError(`Événement ${type} invalide`);
-        await traiter(donnees);
+        const evt = lireEnveloppe(type, job.data);
+        if (!evt) throw new UnrecoverableError(`Événement ${type} invalide`);
+        await traiter(evt);
       },
       { connection: this.options.redis, prefix: this.options.prefixe },
     );
